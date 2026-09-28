@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Biblia en Voz</string>
+    <string name="translation_name">Reina-Valera 1909</string>
+
+    <string name="channel_playback">Lectura en voz alta</string>
+    <string name="channel_playback_desc">Controles de la lectura mientras la app está en segundo plano</string>
+
+    <string name="action_play">Escuchar</string>
+    <string name="action_pause">Pausar</string>
+    <string name="action_next_verse">Versículo siguiente</string>
+    <string name="action_prev_verse">Versículo anterior</string>
+    <string name="action_next_chapter">Capítulo siguiente</string>
+    <string name="action_prev_chapter">Capítulo anterior</string>
+    <string name="action_stop">Detener</string>
+</resources>

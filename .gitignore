@@ -1,0 +1,17 @@
+# Resultados de compilación
+build/
+.gradle/
+*.apk
+*.aab
+
+# Config de la máquina (Android Studio la regenera)
+local.properties
+.idea/
+*.iml
+
+# Claves de firma: NO deben acabar en un repositorio.
+# Guárdalas aparte (gestor de contraseñas, disco externo): sin ellas no se
+# pueden publicar actualizaciones sobre la app ya instalada.
+*.jks
+*.keystore
+keystore.properties
