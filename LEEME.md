@@ -32,6 +32,13 @@ Se instala encima de la 2.1 sin perder la posición ni los ajustes.
 - **Pantallas:** el botón Atrás ya no hace retroceder la posición guardada, la barra de
   reproducción no se descuadra con letra grande, y el resaltado sigue al versículo que
   suena también al saltar con ⏪ ⏩.
+- **Anuncio de cada lectura, como en misa:** antes de leerla, la voz dice el libro, el
+  capítulo y los versículos: «Primera lectura del libro del profeta Daniel, capítulo
+  siete, versículos del nueve al catorce», «Lectura del santo Evangelio según san
+  Marcos, capítulo…». El salmo se nombra («Salmo responsorial. Salmo ochenta y cinco»)
+  porque se lee completo. Lo dicen igual la voz IA y la voz del teléfono.
+- **Cada lectura con su botón:** en la pantalla de la misa, el botón de la lectura que
+  suena muestra ⏸ (pausar) y, en pausa, ▶ para seguir donde iba, igual que el de abajo.
 - **Lecturas de la misa corregidas:** fiestas que se colaban en domingos, Adviento o
   Jueves Santo; días que salían sin lecturas (como Navidad); citas mal entendidas que
   hacían leer un capítulo entero, o el salmo dos veces; algún salmo equivocado, y las
