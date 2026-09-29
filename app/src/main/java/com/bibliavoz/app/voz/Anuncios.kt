@@ -94,16 +94,113 @@ object Anuncios {
         }
 
     /**
-     * Encabezado de una lectura de la misa: «Evangelio. Lectura del santo
-     * Evangelio según san Marcos.» Si no se conoce el libro, solo el título.
+     * Encabezado de una lectura de la misa, con el libro, el capítulo y los
+     * versículos de su [cita] («Daniel 7, 9-14»), como se anuncia en misa:
+     *
+     * - «Primera lectura del libro del profeta Daniel, capítulo siete, versículos
+     *   del nueve al catorce.»
+     * - «Lectura del santo Evangelio según san Marcos, capítulo dieciséis,
+     *   versículos del quince al veinte.»
+     * - Un salmo se lee completo (ver el leccionario), así que solo se nombra:
+     *   «Salmo responsorial. Salmo ochenta y cinco.»
+     * - Un cántico que hace de salmo (el Magníficat, Isaías 12…) no se proclama
+     *   como lectura: «Salmo responsorial, cántico de Isaías, capítulo doce, …».
+     *
+     * [libro] es el nombre del libro en la Biblia de la misa; si no se conoce,
+     * solo el título. La cita va en la numeración del leccionario, la misma que
+     * muestra la pantalla.
      */
-    fun lectura(titulo: String, libro: String, capitulo: Int): String {
+    fun lectura(titulo: String, libro: String, cita: String): String {
         val t = titulo.trim().trimEnd('.')
         val nombre = libro.trim()
         if (nombre.isEmpty()) return "$t."
-        if (nombre == "Salmos") return if (capitulo > 0) "$t. Salmo ${enLetras(capitulo)}." else "$t."
-        val formula = formula(nombre) ?: return "$t. ${nombreHablado(nombre)}."
-        return "$t. Lectura $formula."
+        val refs = Cita.de(cita)
+        if (nombre == "Salmos") {
+            val salmo = refs?.primerCapitulo ?: 0
+            return if (salmo > 0) "$t. Salmo ${enLetras(salmo)}." else "$t."
+        }
+        val donde = refs?.hablada()?.let { ", $it" } ?: ""
+        if (t.startsWith("Salmo responsorial")) return "$t, cántico de ${nombreHablado(nombre)}$donde."
+        val formula = formula(nombre) ?: return "$t. ${nombreHablado(nombre)}$donde."
+        return when {
+            // «Primera lectura», «Segunda lectura»… van pegadas a la fórmula.
+            t.endsWith("lectura") -> "$t $formula$donde."
+            t == "Evangelio" -> "Lectura $formula$donde."
+            // «Evangelio de la procesión», «Epístola».
+            else -> "$t. Lectura $formula$donde."
+        }
+    }
+
+    /**
+     * Una cita del leccionario sin el libro: «7, 9-10. 13-14», «63, 16-17. 19;
+     * 64, 2-7», «26, 14 - 27, 66» o, en los libros de un solo capítulo, «7-20».
+     */
+    class Cita private constructor(private val grupos: List<Grupo>) {
+
+        /** Los versículos de un capítulo (o de un libro sin capítulos, con [capitulo] 0). */
+        private class Grupo(val capitulo: Int, val partes: List<Parte>)
+
+        /** «9», «9-14» o, si cruza de capítulo, «14 - 27, 66» ([hastaCapitulo] 27). */
+        private class Parte(val desde: Int, val hasta: Int, val hastaCapitulo: Int = 0)
+
+        val primerCapitulo: Int get() = grupos.firstOrNull()?.capitulo ?: 0
+
+        /** «capítulo siete, versículos del nueve al diez y del trece al catorce» */
+        fun hablada(): String = grupos.joinToString(", y ") { g ->
+            val sola = g.partes.singleOrNull()
+            val versiculos = when {
+                sola != null && sola.hastaCapitulo > 0 ->
+                    "versículo ${enLetras(sola.desde)}, al capítulo ${enLetras(sola.hastaCapitulo)}, versículo ${enLetras(sola.hasta)}"
+                sola != null && sola.desde == sola.hasta -> "versículo ${enLetras(sola.desde)}"
+                else -> "versículos " + lista(g.partes.map { p ->
+                    when {
+                        p.hastaCapitulo > 0 -> "del ${enLetras(p.desde)} al capítulo ${enLetras(p.hastaCapitulo)}, versículo ${enLetras(p.hasta)}"
+                        p.desde == p.hasta -> enLetras(p.desde)
+                        else -> "del ${enLetras(p.desde)} al ${enLetras(p.hasta)}"
+                    }
+                })
+            }
+            if (g.capitulo > 0) "capítulo ${enLetras(g.capitulo)}, $versiculos" else versiculos
+        }
+
+        private fun lista(xs: List<String>): String =
+            if (xs.size <= 1) xs.joinToString("") else xs.dropLast(1).joinToString(", ") + " y " + xs.last()
+
+        companion object {
+            /** El libro y lo que sigue: el libro puede llevar número («1 Juan») o varias palabras. */
+            private val PARTES = Regex("^(.+?)\\s+(\\d[\\d ,.;-]*)$")
+            private val PARTE = Regex("^(\\d+)(?:-(\\d+))?(?: - (\\d+), (\\d+))?$")
+            private val GRUPO = Regex("^(\\d+), (.+)$")
+
+            /** `null` si la cita no tiene capítulo y versículos que se puedan leer (Ester C, 12…). */
+            fun de(cita: String): Cita? {
+                val m = PARTES.find(cita.trim()) ?: return null
+                // «Ester C, 12…»: el capítulo es una letra; mejor no decir números sueltos.
+                if (m.groupValues[1].endsWith(",")) return null
+                val refs = m.groupValues[2].trim()
+                val grupos = ArrayList<Grupo>()
+                for (texto in refs.split("; ")) {
+                    val g = GRUPO.find(texto)
+                    // Sin coma: un libro de un solo capítulo («Filemón 7-20»).
+                    val capitulo = g?.groupValues?.get(1)?.toInt() ?: 0
+                    val resto = g?.groupValues?.get(2) ?: texto
+                    if (capitulo == 0 && grupos.isNotEmpty()) return null
+                    val partes = ArrayList<Parte>()
+                    for (p in resto.split(". ")) {
+                        val m = PARTE.find(p.trim()) ?: return null
+                        val desde = m.groupValues[1].toInt()
+                        partes += when {
+                            m.groupValues[3].isNotEmpty() ->
+                                Parte(desde, m.groupValues[4].toInt(), hastaCapitulo = m.groupValues[3].toInt())
+                            m.groupValues[2].isNotEmpty() -> Parte(desde, m.groupValues[2].toInt())
+                            else -> Parte(desde, desde)
+                        }
+                    }
+                    grupos += Grupo(capitulo, partes)
+                }
+                return if (grupos.isEmpty()) null else Cita(grupos)
+            }
+        }
     }
 
     /** «del libro del profeta Isaías», «de la primera carta del apóstol san Pedro»… */

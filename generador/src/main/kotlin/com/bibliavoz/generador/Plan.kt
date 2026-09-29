@@ -65,12 +65,11 @@ object Plan {
         val versiculos = lectura.versiculos(catolica)
         if (versiculos.isEmpty()) return null
         val nombreLibro = catolica.nombre(lectura.libro)
-        val capitulo = lectura.tramos.firstOrNull()?.get(0) ?: 0
         val piezas = Segmentador.segmentar(versiculos).map { tramo ->
             val guion = Director.narrar(
                 versos = versiculos.subList(tramo.desde, tramo.hasta + 1),
                 anterior = versiculos.getOrNull(tramo.desde - 1),
-                cabecera = if (tramo.desde == 0) Anuncios.lectura(lectura.titulo, nombreLibro, capitulo) else null,
+                cabecera = if (tramo.desde == 0) Anuncios.lectura(lectura.titulo, nombreLibro, lectura.cita) else null,
                 conEmociones = true,
                 libro = nombreLibro,
             )

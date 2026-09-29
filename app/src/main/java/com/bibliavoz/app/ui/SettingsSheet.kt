@@ -91,17 +91,22 @@ fun SettingsSheet(
                 range = Prefs.MIN_RATE..Prefs.MAX_RATE,
                 steps = 15,
                 onValueChange = { viewModel.onSpeechRateChanged(it) },
-                onValueChangeFinished = { PlaybackService.setSpeechRate(context, settings.speechRate) },
+                // Se lee el valor vigente, no el de esta composición: el último
+                // ajuste del deslizador aún no se ha vuelto a dibujar al soltarlo.
+                onValueChangeFinished = {
+                    PlaybackService.setSpeechRate(context, viewModel.settings.value.speechRate)
+                },
             )
 
             SliderSetting(
                 label = "Tono de voz",
+                subtitle = "Solo la voz del teléfono",
                 value = settings.pitch,
                 valueLabel = String.format("%.2f", settings.pitch),
                 range = Prefs.MIN_PITCH..Prefs.MAX_PITCH,
                 steps = 12,
                 onValueChange = { viewModel.onPitchChanged(it) },
-                onValueChangeFinished = { PlaybackService.setPitch(context, settings.pitch) },
+                onValueChangeFinished = { PlaybackService.setPitch(context, viewModel.settings.value.pitch) },
             )
 
             SwitchSetting(
@@ -229,6 +234,7 @@ private fun SliderSetting(
     steps: Int,
     onValueChange: (Float) -> Unit,
     onValueChangeFinished: () -> Unit,
+    subtitle: String? = null,
 ) {
     Column(Modifier.padding(vertical = 4.dp)) {
         Row(
@@ -236,7 +242,16 @@ private fun SliderSetting(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text(label, style = MaterialTheme.typography.bodyLarge)
+            Column(Modifier.weight(1f)) {
+                Text(label, style = MaterialTheme.typography.bodyLarge)
+                if (subtitle != null) {
+                    Text(
+                        text = subtitle,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
             Text(
                 text = valueLabel,
                 style = MaterialTheme.typography.labelLarge,

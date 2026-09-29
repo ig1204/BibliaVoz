@@ -79,11 +79,33 @@ object CalendarioLiturgico {
     fun claveFija(date: LocalDate): String =
         "%02d-%02d".format(date.monthValue, date.dayOfMonth)
 
+    /** Clave de Santa María, Madre de la Iglesia en `fijas`/`fijasInfo` del leccionario. */
+    const val MADRE_DE_LA_IGLESIA = "MADRE-IGLESIA"
+
+    /** Clave del Inmaculado Corazón de la Virgen María. */
+    const val CORAZON_DE_MARIA = "CORAZON-MARIA"
+
+    /**
+     * Memorias obligatorias que dependen de la Pascua y no tienen fecha fija:
+     * Santa María, Madre de la Iglesia (lunes después de Pentecostés) y el
+     * Inmaculado Corazón de María (sábado después del Sagrado Corazón). Devuelve
+     * su clave en el leccionario, o `null` si ese día no toca ninguna.
+     */
+    fun memoriaMovil(date: LocalDate): String? {
+        val p = pascua(date.year)
+        return when (date) {
+            p.plusDays(50) -> MADRE_DE_LA_IGLESIA
+            p.plusDays(69) -> CORAZON_DE_MARIA
+            else -> null
+        }
+    }
+
     fun claveTemporal(date: LocalDate): String {
         val y = date.year
         val d = dow(date)
         val anioLit = anioLiturgico(date)
-        val sufijo = if (d == 0) "-" + cicloDominical(anioLit) else "-" + cicloFerial(anioLit)
+        val ciclo = cicloDominical(anioLit)
+        val sufijo = if (d == 0) "-$ciclo" else "-" + cicloFerial(anioLit)
 
         val pascua = pascua(y)
         val miercolesCeniza = pascua.minusDays(46)
@@ -96,33 +118,39 @@ object CalendarioLiturgico {
         val navidad = LocalDate.of(y, 12, 25)
 
         // Del 17 al 24 de diciembre las ferias de Adviento tienen lecturas
-        // propias por fecha, no por día de la semana.
+        // propias por fecha, no por día de la semana. Un día de Adviento de
+        // finales de noviembre es una feria normal.
         if (!date.isBefore(adviento) && date.isBefore(navidad)) {
-            if (d != 0 && date.dayOfMonth >= 17) return "ADVDIC-%02d".format(date.dayOfMonth)
+            if (d != 0 && date.monthValue == 12 && date.dayOfMonth >= 17) return "ADVDIC-%02d".format(date.dayOfMonth)
             val semana = (java.time.temporal.ChronoUnit.DAYS.between(adviento, date) / 7 + 1).toInt()
             return "ADV-$semana-$d$sufijo"
         }
 
         if (date.monthValue == 1 && date.dayOfMonth == 1) return "ENE01"
 
+        // El 25 tiene su misa aunque caiga en domingo; la Sagrada Familia es el
+        // domingo de la octava o, si no lo hay (Navidad en domingo), el 30.
         if (!date.isBefore(navidad)) {
-            if (d == 0) return "SAGFAM$sufijo"
+            if (date == navidad) return "NAV-12-25"
+            if (d == 0 || (dow(navidad) == 0 && date.dayOfMonth == 30)) return "SAGFAM-$ciclo"
             return "NAV-%02d-%02d".format(date.monthValue, date.dayOfMonth)
         }
 
         if (date.isBefore(bautismo)) {
             val epi = epifania(y)
             if (date == epi) return "EPIFANIA"
-            if (d == 0) return "SAGFAM$sufijo"
+            if (d == 0) return "SAGFAM-$ciclo"
             if (date.isBefore(epi)) return "ANTEPIF-%02d".format(date.dayOfMonth)
             return "TRASEPIF-$d"
         }
-        if (date == bautismo) return "BAUTISMO$sufijo"
+        // El Bautismo tiene evangelio de cada ciclo A/B/C aunque caiga en lunes.
+        if (date == bautismo) return "BAUTISMO-$ciclo"
 
         if (!date.isBefore(juevesSanto) && date.isBefore(pascua)) {
             val nombres = arrayOf("JUE", "VIE", "SAB")
-            val indice = java.time.temporal.ChronoUnit.DAYS.between(juevesSanto, date).toInt()
-            return "TRI-" + nombres[indice.coerceIn(0, 2)]
+            val indice = java.time.temporal.ChronoUnit.DAYS.between(juevesSanto, date).toInt().coerceIn(0, 2)
+            // La Vigilia pascual también tiene evangelio propio de cada ciclo.
+            return if (indice == 2) "TRI-SAB-$ciclo" else "TRI-" + nombres[indice]
         }
         if (!date.isBefore(ramos) && date.isBefore(juevesSanto)) return "SANTA-$d$sufijo"
 
@@ -132,6 +160,8 @@ object CalendarioLiturgico {
             return "CUA-$semana-$d$sufijo"
         }
 
+        // PAS-7-0 es la Ascensión, que en México se celebra el VII domingo de
+        // Pascua; PAS-8-0 es Pentecostés.
         if (!date.isBefore(pascua) && !date.isAfter(pentecostes)) {
             val semana = (java.time.temporal.ChronoUnit.DAYS.between(pascua, date) / 7 + 1).toInt()
             return "PAS-$semana-$d$sufijo"
@@ -141,11 +171,14 @@ object CalendarioLiturgico {
         if (date == pascua.plusDays(56)) return "TRINIDAD$sufijo"
         if (date == pascua.plusDays(63)) return "CORPUS$sufijo"
         // El Sagrado Corazón tiene ciclo propio A/B/C aunque caiga en viernes.
-        if (date == pascua.plusDays(68)) return "SAGCORAZON-" + cicloDominical(anioLit)
+        if (date == pascua.plusDays(68)) return "SAGCORAZON-$ciclo"
 
         if (date.isAfter(bautismo) && date.isBefore(miercolesCeniza)) {
             val domingo = date.minusDays(d.toLong())
-            val semana = (java.time.temporal.ChronoUnit.DAYS.between(bautismo, domingo) / 7 + 1).toInt()
+            // Redondeando, como [math]::Round del script: si el Bautismo cae en
+            // lunes, el domingo siguiente (6 días después) ya es el 2º.
+            val dias = java.time.temporal.ChronoUnit.DAYS.between(bautismo, domingo)
+            val semana = ((dias + 3) / 7 + 1).toInt()
             return "ORD-$semana-$d$sufijo"
         }
 
@@ -175,23 +208,33 @@ object CalendarioLiturgico {
             clave == "EPIFANIA" -> "Epifanía del Señor"
             clave.startsWith("ANTEPIF-") -> "Feria antes de Epifanía"
             clave.startsWith("TRASEPIF-") -> "$dia después de Epifanía"
-            clave.startsWith("NAV-") -> "Tiempo de Navidad"
+            clave == "NAV-12-25" -> "La Natividad del Señor"
+            clave.startsWith("NAV-") -> "Octava de Navidad"
             clave.startsWith("BAUTISMO") -> "El Bautismo del Señor"
             clave == "TRI-JUE" -> "Jueves Santo"
             clave == "TRI-VIE" -> "Viernes Santo"
-            clave == "TRI-SAB" -> "Sábado Santo"
+            clave.startsWith("TRI-SAB") -> "Sábado Santo, Vigilia pascual"
             clave.startsWith("SANTA-") -> if (d == 0) "Domingo de Ramos" else "$dia Santo"
             clave.startsWith("CENIZA-") -> if (d == 3) "Miércoles de Ceniza" else "$dia después de Ceniza"
             clave.startsWith("CUA-") -> tramo(clave, dia, "de Cuaresma")
+            clave.startsWith("PAS-1-") -> if (d == 0) "Domingo de Pascua de la Resurrección" else "$dia de la Octava de Pascua"
+            clave.startsWith("PAS-7-0") -> "La Ascensión del Señor"
+            clave.startsWith("PAS-8-0") -> "Domingo de Pentecostés"
             clave.startsWith("PAS-") -> tramo(clave, dia, "de Pascua")
             clave.startsWith("TRINIDAD") -> "La Santísima Trinidad"
             clave.startsWith("CORPUS") -> "El Cuerpo y la Sangre de Cristo"
             clave.startsWith("SAGCORAZON") -> "El Sagrado Corazón de Jesús"
+            clave.startsWith("ORD-34-0") -> "Jesucristo, Rey del Universo"
             clave.startsWith("ORD-") -> tramo(clave, dia, "del Tiempo Ordinario")
             else -> dia
         }
 
-        val ciclo = if (d == 0) "Ciclo ${cicloDominical(anioLit)}" else "Ciclo ${cicloFerial(anioLit)}"
+        // Los días cuyas lecturas van por el ciclo dominical aunque no sean
+        // domingo (Vigilia pascual, Sagrado Corazón…) lo muestran también.
+        // Navidad es solemnidad: aunque caiga entre semana, su año es el dominical.
+        val porDomingo = d == 0 || clave == "NAV-12-25" ||
+            clave.endsWith("-A") || clave.endsWith("-B") || clave.endsWith("-C")
+        val ciclo = if (porDomingo) "Ciclo ${cicloDominical(anioLit)}" else "Ciclo ${cicloFerial(anioLit)}"
         return "$base · $ciclo"
     }
 

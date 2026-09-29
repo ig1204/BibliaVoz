@@ -65,8 +65,10 @@ fun VoicePickerSheet(
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
     LaunchedEffect(Unit) {
-        // La voz de prueba y la lectura pelearían por el altavoz.
-        PlaybackService.pause(context)
+        // La voz de prueba y la lectura pelearían por el altavoz. Si el servicio
+        // no existe no hay nada que pausar, y despertarlo dejaría una
+        // notificación de reproducción sin que suene nada.
+        if (PlaybackService.running) PlaybackService.pause(context)
         viewModel.loadVoiceCatalog()
     }
 

@@ -42,6 +42,13 @@ fun ChaptersScreen(
     val playerState by PlayerBus.state.collectAsStateWithLifecycle()
     val book = books.firstOrNull { it.number == bookNumber }
     val chapterCount = book?.chapterCount ?: 0
+    // Mientras suena la Biblia se marca el capítulo que se oye; en pausa, el
+    // que se está leyendo (el mismo que dice «Continuar escuchando»).
+    val marcado = if (playerState.isPlaying && !playerState.enLecturas) {
+        playerState.position
+    } else {
+        viewModel.savedPosition
+    }
 
     Scaffold(
         topBar = {
@@ -63,8 +70,7 @@ fun ChaptersScreen(
             contentPadding = PaddingValues(16.dp),
         ) {
             items((1..chapterCount).toList(), key = { it }) { chapter ->
-                val isCurrent = playerState.position.book == bookNumber &&
-                    playerState.position.chapter == chapter
+                val isCurrent = marcado.book == bookNumber && marcado.chapter == chapter
 
                 Surface(
                     modifier = Modifier

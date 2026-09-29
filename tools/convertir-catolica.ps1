@@ -114,4 +114,8 @@ Write-Output "HUECOS DE NUMERACION: $($gaps.Count)"
 $gaps | Select-Object -First 15 | ForEach-Object { "   hueco: $_" }
 $size = (Get-ChildItem $outDir | Measure-Object -Property Length -Sum).Sum
 Write-Output "TAMANO    : $([math]::Round($size/1MB,2)) MB"
+
+# Correcciones puntuales del texto (Padrenuestro de Lucas 11, letras del Salmo 119):
+# sin ellas la voz leeria sueltos «uno», «dos» o «Bet».
+& (Join-Path $PSScriptRoot 'corregir-biblia-cat.ps1')
 Write-Output 'BIBLIA CATOLICA LISTA'

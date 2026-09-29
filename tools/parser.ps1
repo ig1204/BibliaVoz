@@ -52,7 +52,7 @@ Add-Book 44 @('hg','hag','haggai')
 Add-Book 45 @('zec','zech','zechariah')
 Add-Book 46 @('mal','malachi')
 Add-Book 47 @('mt','matt','matthew')
-Add-Book 48 @('mk','mark','mrk')
+Add-Book 48 @('mk','mark','mrk','m')           # 'm': errata de la fuente (6-1-2023)
 Add-Book 49 @('lk','luke')
 Add-Book 50 @('jn','john')
 Add-Book 51 @('acts','ac','acts of the apostles')
@@ -61,7 +61,7 @@ Add-Book 53 @('1 cor','1 co','1 corinthians','1cor')
 Add-Book 54 @('2 cor','2 co','2 corinthians','2cor')
 Add-Book 55 @('gal','ga','galatians')
 Add-Book 56 @('eph','ephesians')
-Add-Book 57 @('phil','php','philippians')
+Add-Book 57 @('phil','php','philippians','phiippians')  # 'phiippians': errata de la fuente
 Add-Book 58 @('col','colossians')
 Add-Book 59 @('1 thes','1 thess','1 th','1 thessalonians','1thes')
 Add-Book 60 @('2 thes','2 thess','2 th','2 thessalonians','2thes')
@@ -89,13 +89,21 @@ $SPANISH = @('','Génesis','Éxodo','Levítico','Números','Deuteronomio','Josu�
  '1 Timoteo','2 Timoteo','Tito','Filemón','Hebreos','Santiago','1 Pedro','2 Pedro','1 Juan','2 Juan',
  '3 Juan','Judas','Apocalipsis')
 
+# Libros de un solo capitulo: sus citas no traen capitulo ("Phlm 7-20", "Jude 17, 20b-25").
+$UN_CAPITULO = @(38, 64, 70, 71, 72)
+
+# Un tramo es @(capitulo, versiculo, capitulo, versiculo); 999 = "hasta el final
+# del capitulo", solo para capitulos enteros citados como tales.
+$HASTA_EL_FINAL = 999
+
 function Parse-Citation([string]$raw, [int]$defaultBook = 0) {
     if ([string]::IsNullOrWhiteSpace($raw)) { return $null }
 
     $s = $raw.Trim()
-    # normalizar guiones largos y espacios raros
+    # normalizar guiones largos (tambien el doble guion "32--4:4") y espacios raros
     $s = $s -replace '[‐-―−]', '-'
-    $s = $s -replace ' ', ' '
+    $s = $s -replace '-{2,}', '-'
+    $s = $s -replace ' ', ' '
     $s = $s -replace '\s+', ' '
     # quitar "Cf.", "See", "cf"
     $s = $s -replace '^(?i)(cf\.?|see)\s+', ''
@@ -103,6 +111,9 @@ function Parse-Citation([string]$raw, [int]$defaultBook = 0) {
     $s = ($s -split '(?i)\s+or\s+')[0].Trim()
     # quitar parentesis sueltos
     $s = $s -replace '[\(\)\[\]]', ''
+    # "27 and 29", "3 & 9", "6-7 + 9": la union separa tramos igual que la coma.
+    # Tiene que ir ANTES de quitar los espacios: si no, "27 and 29" acaba en "2729".
+    $s = $s -replace '(?i)\s*(?:\band\b|&|\+)\s*', ', '
     # el punto y coma separa tramos igual que la coma: "Zep 2:3; 3:12-13"
     $s = $s -replace ';', ','
 
@@ -128,55 +139,138 @@ function Parse-Citation([string]$raw, [int]$defaultBook = 0) {
         else { return $null }
     }
 
-    $ranges = New-Object System.Collections.ArrayList
-    $currentChapter = 0
+    $segs = New-Object System.Collections.ArrayList
+    $unknown = New-Object System.Collections.ArrayList
+    $currentChapter = if ($UN_CAPITULO -contains $book) { 1 } else { 0 }
 
     foreach ($tokenRaw in ($rest -split ',')) {
-        $token = $tokenRaw.Trim()
-        if ($token -eq '') { continue }
         # Primero se quitan los espacios y luego los sufijos de versiculo
         # parcial (7a, 3CD, "12 cd"): al reves, "12 cd-20" no se limpiaria.
-        $token = $token -replace '\s', ''
+        $token = $tokenRaw.Trim() -replace '\s', ''
+        if ($token -eq '') { continue }
+        # "3b4" (errata por "3b-4"): una letra ENTRE dos cifras separa, no se pega.
+        $token = $token -replace '(?<=\d)[A-Za-z]+(?=\d)', '-'
+        # El sufijo del primer versiculo se guarda: hace falta en los pocos
+        # versiculos que la otra numeracion parte entre dos capitulos (Is 63,19b).
+        $sfx = ''
+        if ($token -match '^(?:\d+:)?\d+([A-Za-z]+)') { $sfx = $Matches[1].ToLower() }
         $token = $token -replace '(?<=\d)[A-Za-z]+', ''
         if ($token -eq '' -or $token -notmatch '\d') { continue }
 
-        if ($token -match '^(\d+):(\d+)-(\d+):(\d+)$') {
-            [void]$ranges.Add(@([int]$Matches[1], [int]$Matches[2], [int]$Matches[3], [int]$Matches[4]))
+        if ($token -match '^(\d+):(\d+)-(\d+):(\d+)(?:-(\d+))?$') {
+            # "1:5-2:2"; "1:1-2:1-2" (Jonas: del 1,1 al 2,2)
+            $fin = if ($Matches[5]) { [int]$Matches[5] } else { [int]$Matches[4] }
+            [void]$segs.Add(@([int]$Matches[1], [int]$Matches[2], [int]$Matches[3], $fin, $sfx))
             $currentChapter = [int]$Matches[3]
-        } elseif ($token -match '^(\d+):(\d+)-(\d+)$') {
+        } elseif ($token -match '^(\d+):(\d+)((?:-\d+)+)$') {
+            # "85:9-10" y la errata "85:9-10-11-12": del primero al ultimo
             $currentChapter = [int]$Matches[1]
-            [void]$ranges.Add(@($currentChapter, [int]$Matches[2], $currentChapter, [int]$Matches[3]))
+            $ultimo = [int](($Matches[3] -split '-')[-1])
+            [void]$segs.Add(@($currentChapter, [int]$Matches[2], $currentChapter, $ultimo, $sfx))
         } elseif ($token -match '^(\d+):(\d+)$') {
             $currentChapter = [int]$Matches[1]
-            [void]$ranges.Add(@($currentChapter, [int]$Matches[2], $currentChapter, [int]$Matches[2]))
+            [void]$segs.Add(@($currentChapter, [int]$Matches[2], $currentChapter, [int]$Matches[2], $sfx))
+        } elseif ($token -match '^(\d+)-(\d+):(\d+)$' -and $currentChapter -gt 0) {
+            # "11-21:2" tras una coma: del versiculo 11 del capitulo en curso al 21,2
+            [void]$segs.Add(@($currentChapter, [int]$Matches[1], [int]$Matches[2], [int]$Matches[3], $sfx))
+            $currentChapter = [int]$Matches[2]
         } elseif ($token -match '^(\d+)-(\d+)$') {
             if ($currentChapter -gt 0) {
-                [void]$ranges.Add(@($currentChapter, [int]$Matches[1], $currentChapter, [int]$Matches[2]))
+                [void]$segs.Add(@($currentChapter, [int]$Matches[1], $currentChapter, [int]$Matches[2], $sfx))
             } else {
                 # capitulos enteros, p. ej. "Jon 3-4"
-                [void]$ranges.Add(@([int]$Matches[1], 1, [int]$Matches[2], 999))
+                [void]$segs.Add(@([int]$Matches[1], 1, [int]$Matches[2], $HASTA_EL_FINAL, ''))
                 $currentChapter = [int]$Matches[2]
             }
         } elseif ($token -match '^(\d+)$') {
             if ($currentChapter -gt 0) {
-                [void]$ranges.Add(@($currentChapter, [int]$Matches[1], $currentChapter, [int]$Matches[1]))
+                [void]$segs.Add(@($currentChapter, [int]$Matches[1], $currentChapter, [int]$Matches[1], $sfx))
             } else {
                 $currentChapter = [int]$Matches[1]
-                [void]$ranges.Add(@($currentChapter, 1, $currentChapter, 999))
+                [void]$segs.Add(@($currentChapter, 1, $currentChapter, $HASTA_EL_FINAL, ''))
             }
+        } else {
+            [void]$unknown.Add($tokenRaw.Trim())
         }
     }
 
-    if ($ranges.Count -eq 0) { return $null }
+    if ($segs.Count -eq 0) { return $null }
 
-    $first = $ranges[0]; $last = $ranges[$ranges.Count - 1]
-    $name = $SPANISH[$book]
-    $label = if ($first[0] -eq $last[2]) {
-        if ($first[1] -eq $last[3]) { "$name $($first[0]), $($first[1])" }
-        else { "$name $($first[0]), $($first[1])-$($last[3])" }
-    } else {
-        "$name $($first[0]), $($first[1]) - $($last[2]), $($last[3])"
+    return @{ book = $book; segs = $segs; unknown = $unknown; label = (Format-Label $book $segs) }
+}
+
+# Quita de cada tramo los versiculos que ya salieron en uno anterior ("2-3a, 3b-4"
+# repetiria el 3) y descarta lo que quede vacio. El ORDEN de la cita se respeta:
+# los salmos a veces vuelven atras ("1-2, 24, 35, 27-28") y asi se proclaman.
+# No se juntan tramos contiguos: cambiaria la clave del audio sin cambiar el texto.
+function Remove-Overlaps($tramos) {
+    $out = New-Object System.Collections.ArrayList
+    foreach ($t in $tramos) {
+        $piezas = New-Object System.Collections.ArrayList
+        [void]$piezas.Add(@($t[0], $t[1], $t[2], $t[3]))
+        foreach ($p in $out) {
+            $siguientes = New-Object System.Collections.ArrayList
+            foreach ($q in $piezas) {
+                # Posicion = capitulo * 1000 + versiculo: compara tambien tramos que
+                # cruzan de capitulo.
+                $qa = $q[0] * 1000 + $q[1]; $qb = $q[2] * 1000 + $q[3]
+                $pa = $p[0] * 1000 + $p[1]; $pb = $p[2] * 1000 + $p[3]
+                if ($qb -lt $pa -or $qa -gt $pb) { [void]$siguientes.Add($q); continue }
+                if ($qa -lt $pa) {
+                    # lo de antes del tramo ya visto
+                    if ($p[1] -gt 1) { [void]$siguientes.Add(@($q[0], $q[1], $p[0], ($p[1] - 1))) }
+                    else { [void]$siguientes.Add(@($q[0], $q[1], ($p[0] - 1), $HASTA_EL_FINAL)) }
+                }
+                # lo de despues (si pasa del final del capitulo, Tramos.versos lo recorta)
+                if ($qb -gt $pb) { [void]$siguientes.Add(@($p[2], ($p[3] + 1), $q[2], $q[3])) }
+            }
+            $piezas = $siguientes
+        }
+        foreach ($q in $piezas) { [void]$out.Add($q) }
+    }
+    return ,$out.ToArray()
+}
+
+# Etiqueta en espanol hecha con la cita ORIGINAL (numeracion del leccionario):
+# "Isaías 63, 16-17. 19; 64, 2-7", "Salmo 89, 2-5. 27. 29", "Filemón 7-20".
+function Format-Label([int]$book, $segs) {
+    $tramos = Remove-Overlaps (@($segs | ForEach-Object { , @($_[0], $_[1], $_[2], $_[3]) }))
+    # Para leer la cita se juntan los tramos contiguos: "2-3. 4-5" -> "2-5".
+    $juntos = New-Object System.Collections.ArrayList
+    foreach ($t in $tramos) {
+        if ($juntos.Count -gt 0) {
+            $u = $juntos[$juntos.Count - 1]
+            if ($u[2] -eq $t[0] -and $t[0] -eq $t[2] -and $u[3] -ne $HASTA_EL_FINAL -and $t[1] -eq $u[3] + 1) {
+                $juntos[$juntos.Count - 1] = @($u[0], $u[1], $u[2], $t[3]); continue
+            }
+        }
+        [void]$juntos.Add(@($t[0], $t[1], $t[2], $t[3]))
     }
 
-    return @{ book = $book; ranges = $ranges; label = $label }
+    $sinCapitulo = ($UN_CAPITULO -contains $book) -and -not ($juntos | Where-Object { $_[0] -ne 1 -or $_[2] -ne 1 })
+    $sb = New-Object System.Text.StringBuilder
+    [void]$sb.Append($SPANISH[$book])
+    $cur = -1
+    foreach ($t in $juntos) {
+        $c1 = $t[0]; $v1 = $t[1]; $c2 = $t[2]; $v2 = $t[3]
+        if ($v2 -eq $HASTA_EL_FINAL) {
+            $sep = if ($cur -lt 0) { ' ' } else { '; ' }
+            $cap = if ($c1 -eq $c2) { "$c1" } else { "$c1-$c2" }
+            [void]$sb.Append($sep).Append($cap)
+            $cur = -1
+            continue
+        }
+        if ($sinCapitulo) {
+            $sep = if ($cur -lt 0) { ' ' } else { '. ' }
+        } elseif ($cur -eq $c1) {
+            $sep = '. '
+        } else {
+            $sep = if ($cur -lt 0) { ' ' } else { '; ' }
+            $sep += "$c1, "
+        }
+        $versos = if ($c1 -ne $c2) { "$v1 - $c2, $v2" } elseif ($v1 -eq $v2) { "$v1" } else { "$v1-$v2" }
+        [void]$sb.Append($sep).Append($versos)
+        $cur = $c2
+    }
+    return $sb.ToString()
 }

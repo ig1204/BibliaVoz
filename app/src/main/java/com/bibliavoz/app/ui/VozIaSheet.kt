@@ -88,7 +88,7 @@ fun VozIaSheet(
             ) {
                 Column(Modifier.padding(16.dp)) {
                     Text(
-                        text = "Instalado en este teléfono",
+                        text = if (estado.enApk) "Incluida en la app" else "Instalado en este teléfono",
                         style = MaterialTheme.typography.titleSmall,
                         fontWeight = FontWeight.SemiBold,
                     )
@@ -115,9 +115,20 @@ fun VozIaSheet(
                             }
                         }
                         else -> Text(
-                            text = "Todavía no hay audio de la voz IA. Se genera en la PC y se copia " +
-                                "al teléfono por cable; mientras, lee la voz del teléfono.",
+                            text = "Esta copia de la app no trae el audio de la voz IA; mientras, " +
+                                "lee la voz del teléfono. Instala el APK completo de Biblia en Voz.",
                             style = MaterialTheme.typography.bodyMedium,
+                        )
+                    }
+                    // Solo cuenta lo que tiene todos sus archivos: si el manifiesto
+                    // nombra más, la copia desde la PC quedó a medias.
+                    if (estado.revisado && estado.faltanArchivos) {
+                        Spacer(Modifier.height(6.dp))
+                        Text(
+                            text = "Faltan archivos de audio; vuelve a copiar la voz IA desde la PC.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.error,
                         )
                     }
                 }

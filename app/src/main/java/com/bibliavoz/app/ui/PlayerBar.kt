@@ -43,6 +43,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.platform.LocalContext
 import com.bibliavoz.app.player.EngineError
@@ -86,10 +87,15 @@ fun PlayerBar(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween,
             ) {
+                // La referencia cede el sitio: con letra grande o un libro de
+                // nombre largo se recorta con «…» y los chips se ven enteros.
                 Text(
                     text = if (state.vozIa) "$reference · Voz IA" else reference,
                     style = MaterialTheme.typography.labelLarge,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f).padding(end = 8.dp),
                 )
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     SpeedChip(current = state.speechRate, onSpeedChange = onSpeedChange)
@@ -142,7 +148,7 @@ private fun SpeedChip(current: Float, onSpeedChange: (Float) -> Unit) {
     Column {
         AssistChip(
             onClick = { expanded = true },
-            label = { Text(formatSpeed(current)) },
+            label = { Text(formatSpeed(current), maxLines = 1, softWrap = false) },
             leadingIcon = { Icon(Icons.Rounded.Speed, contentDescription = null, Modifier.size(18.dp)) },
             colors = AssistChipDefaults.assistChipColors(),
         )
@@ -186,7 +192,13 @@ private fun SleepTimerChip(endsAt: Long, onSleepTimer: (Int) -> Unit) {
     Column {
         AssistChip(
             onClick = { expanded = true },
-            label = { Text(if (remainingMinutes > 0) "$remainingMinutes min" else "Temporizador") },
+            label = {
+                Text(
+                    text = if (remainingMinutes > 0) "$remainingMinutes min" else "Temporizador",
+                    maxLines = 1,
+                    softWrap = false,
+                )
+            },
             leadingIcon = { Icon(Icons.Rounded.Bedtime, contentDescription = null, Modifier.size(18.dp)) },
         )
         DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {

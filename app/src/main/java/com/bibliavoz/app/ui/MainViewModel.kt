@@ -16,6 +16,7 @@ import com.bibliavoz.app.player.VoiceCatalog
 import com.bibliavoz.app.voz.VocesIa
 import java.time.LocalDate
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -41,11 +42,20 @@ data class VozIaState(
     val capitulos: Int = 0,
     val lecturas: Int = 0,
     val bytes: Long = 0L,
+    /** Lo que el manifiesto dice que se copió; si hay más que lo completo, faltan archivos. */
+    val capitulosDeclarados: Int = 0,
+    val lecturasDeclaradas: Int = 0,
     val voz: String = VocesIa.VOZ_NOMBRE,
+    /** El audio viene dentro de la app, no copiado por cable. */
+    val enApk: Boolean = false,
     /** Ya se miró qué hay instalado (antes de eso no se sabe si hay audio). */
     val revisado: Boolean = false,
 ) {
     val hayAudio: Boolean get() = capitulos > 0 || lecturas > 0
+
+    /** El manifiesto nombra audio que no está entero en el teléfono (una copia a medias). */
+    val faltanArchivos: Boolean
+        get() = capitulos < capitulosDeclarados || lecturas < lecturasDeclaradas
 }
 
 /** Lo que la pantalla de selección de voz necesita mostrar. */
@@ -125,7 +135,12 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     fun loadChapter(book: Int, chapterNumber: Int) {
         val key = book to chapterNumber
         val current = _chapter.value
-        if (current?.bookNumber == book && current.chapterNumber == chapterNumber) return
+        if (current?.bookNumber == book && current.chapterNumber == chapterNumber) {
+            // Se volvió al capítulo que ya estaba: la carga de otro que quedó a
+            // medias ya no sirve y no debe pisarlo cuando termine.
+            loadingKey = null
+            return
+        }
         if (loadingKey == key) return
         loadingKey = key
         viewModelScope.launch {
@@ -255,7 +270,10 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                     capitulos = resumen.capitulos,
                     lecturas = resumen.lecturas,
                     bytes = resumen.bytes,
+                    capitulosDeclarados = resumen.capitulosDeclarados,
+                    lecturasDeclaradas = resumen.lecturasDeclaradas,
                     voz = resumen.voz.ifBlank { VocesIa.VOZ_NOMBRE },
+                    enApk = resumen.enApk,
                     revisado = true,
                 )
             }
@@ -278,13 +296,20 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     private val _lecturas = MutableStateFlow(LecturasUiState())
     val lecturas: StateFlow<LecturasUiState> = _lecturas.asStateFlow()
 
+    private var cargaLecturas: Job? = null
+
     fun cargarLecturas(fecha: LocalDate) {
+        // Al pulsar rápido las flechas de día, cada carga tarda distinto según
+        // los libros que haya que leer: la vieja no debe pisar a la nueva.
+        cargaLecturas?.cancel()
         _lecturas.value = _lecturas.value.copy(fecha = fecha, cargando = true)
-        viewModelScope.launch {
+        cargaLecturas = viewModelScope.launch {
             val resultado = withContext(Dispatchers.IO) {
                 val dia = leccionario.delDia(fecha)
                 if (dia == null) null else dia to leccionario.conTexto(dia)
             }
+            // Cancelar no corta una lectura de disco ya empezada: se comprueba aquí.
+            if (_lecturas.value.fecha != fecha) return@launch
             _lecturas.value = if (resultado == null) {
                 LecturasUiState(fecha = fecha, cargando = false, disponible = false)
             } else {

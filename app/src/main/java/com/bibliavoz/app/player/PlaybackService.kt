@@ -5,8 +5,10 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
+import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.ServiceInfo
 import android.media.AudioAttributes
 import android.media.AudioFocusRequest
@@ -122,8 +124,24 @@ class PlaybackService : Service() {
     /** Lo que suena ahora es la voz IA (y no la del teléfono). */
     private var iaSonando = false
 
-    /** Un archivo de la voz IA falló: hasta el próximo ▶ se sigue con la voz del teléfono. */
-    private var iaFallida = false
+    /**
+     * Archivos de la voz IA que fallaron: hasta el próximo ▶ esos tramos los lee
+     * la voz del teléfono. Los demás siguen con la voz IA.
+     */
+    private val iaFallidos = HashSet<AudioLocal.Fuente>()
+
+    /**
+     * Versículo al que se saltó con la voz IA. El audio arranca un poco antes
+     * (el margen de [HablanteIa]); mientras no llegue a este versículo, el
+     * progreso no baja el resaltado. -1 = sin salto pendiente.
+     */
+    private var versoPedidoIa = -1
+
+    /** La lectura espera a que arranque el motor del teléfono para poder seguir. */
+    private var esperandoMotor = false
+
+    /** Está registrado el aviso de "se desconectaron los audífonos". */
+    private var escuchandoAudifonos = false
 
     // --- modo "lecturas de la misa" ---
     // Cuando hay lecturas cargadas, la voz recorre esa lista y se detiene al
@@ -131,6 +149,12 @@ class PlaybackService : Service() {
     private var lecturas: List<LecturaConTexto> = emptyList()
     private var lecturaIndex = 0
     private var lecturaVerso = 0
+
+    /**
+     * Título del día de esas lecturas, copiado al empezar: la pantalla puede
+     * preparar otro día en [ColaLecturas] mientras estas suenan.
+     */
+    private var lecturasTitulo = ""
     private val enModoLecturas: Boolean get() = lecturas.isNotEmpty()
 
     /**
@@ -172,7 +196,7 @@ class PlaybackService : Service() {
         }
 
         audioLocal = AudioLocal(this)
-        vozIa = HablanteIa(oyenteIa).apply { velocidad(prefs.speechRate, prefs.pitch) }
+        vozIa = HablanteIa(this, oyenteIa).apply { velocidad(prefs.speechRate) }
         scope.launch(Dispatchers.IO) { audioLocal.recargarSiCambio() }
 
         publishState()
@@ -190,14 +214,14 @@ class PlaybackService : Service() {
         MediaButtonReceiver.handleIntent(mediaSession, intent)
 
         when (intent?.action) {
-            ACTION_PLAY -> play()
+            ACTION_PLAY -> playDesdeControles()
             ACTION_PAUSE -> userPause()
-            ACTION_TOGGLE -> if (playing) userPause() else play()
+            ACTION_TOGGLE -> if (playing) userPause() else playDesdeControles()
             ACTION_STOP -> stopEverything()
-            ACTION_NEXT_VERSE -> stepVerse(+1)
-            ACTION_PREV_VERSE -> stepVerse(-1)
-            ACTION_NEXT_CHAPTER -> stepChapter(+1)
-            ACTION_PREV_CHAPTER -> stepChapter(-1)
+            ACTION_NEXT_VERSE -> pasoVerso(+1, intent.getBooleanExtra(EXTRA_DESDE_BIBLIA, false))
+            ACTION_PREV_VERSE -> pasoVerso(-1, intent.getBooleanExtra(EXTRA_DESDE_BIBLIA, false))
+            ACTION_NEXT_CHAPTER -> pasoCapitulo(+1, intent.getBooleanExtra(EXTRA_DESDE_BIBLIA, false))
+            ACTION_PREV_CHAPTER -> pasoCapitulo(-1, intent.getBooleanExtra(EXTRA_DESDE_BIBLIA, false))
             ACTION_SEEK -> {
                 val target = Position(
                     book = intent.getIntExtra(EXTRA_BOOK, position.book),
@@ -233,6 +257,8 @@ class PlaybackService : Service() {
                     tts = null
                     engineReady = false
                     engineFailed = false
+                    // Si estaba sonando, se sigue en cuanto responda el motor nuevo.
+                    esperandoMotor = playing
                     initTts()
                 } else {
                     tts?.let { applySelectedVoice(it) }
@@ -243,17 +269,21 @@ class PlaybackService : Service() {
             ACTION_VOZ_IA -> {
                 // Se activó o desactivó la voz IA: si está sonando, el cambio se
                 // oye ya, desde el versículo actual.
-                iaFallida = false
+                iaFallidos.clear()
                 PlayerBus.update { it.copy(avisoVoz = null) }
                 if (playing) {
                     stopSpeaking()
                     speakCurrentVerse()
+                } else {
+                    // Un tramo IA en pausa no debe reanudarse con la voz IA apagada.
+                    stopSpeaking()
                 }
                 publishState()
             }
             ACTION_PLAY_LECTURAS -> {
                 stopSpeaking()
                 lecturas = ColaLecturas.items
+                lecturasTitulo = if (lecturas.isEmpty()) "" else ColaLecturas.titulo
                 lecturaIndex = intent.getIntExtra(EXTRA_LECTURA, 0).coerceIn(0, (lecturas.size - 1).coerceAtLeast(0))
                 lecturaVerso = 0
                 if (lecturas.isEmpty()) {
@@ -265,12 +295,7 @@ class PlaybackService : Service() {
                     play()
                 }
             }
-            ACTION_SALIR_LECTURAS -> {
-                stopSpeaking()
-                lecturas = emptyList()
-                ColaLecturas.limpiar()
-                publishState()
-            }
+            ACTION_SALIR_LECTURAS -> salirDeLecturas()
             ACTION_SLEEP_TIMER -> startSleepTimer(intent.getIntExtra(EXTRA_MINUTES, 0))
             else -> Unit
         }
@@ -281,6 +306,9 @@ class PlaybackService : Service() {
         when {
             stopping -> Unit
             playing -> cancelIdleStop()
+            // Esperando recuperar el foco (una llamada): se sigue en primer plano
+            // para poder reanudar solos, igual que en pause(abandonFocus = false).
+            resumeOnFocusGain -> Unit
             else -> {
                 demoteFromForeground()
                 scheduleIdleStop()
@@ -294,6 +322,7 @@ class PlaybackService : Service() {
         running = false
         sleepJob?.cancel()
         idleStopJob?.cancel()
+        dejarDeEscucharAudifonos()
         releaseWakeLock()
         abandonAudioFocus()
         tts?.let {
@@ -308,7 +337,7 @@ class PlaybackService : Service() {
         // al servicio con botones que no responden a nada.
         runCatching { notificationManager.cancel(NOTIFICATION_ID) }
         scope.cancel()
-        PlayerBus.update { it.copy(isPlaying = false) }
+        PlayerBus.update { it.copy(isPlaying = false).sinMisa() }
         super.onDestroy()
     }
 
@@ -371,7 +400,7 @@ class PlaybackService : Service() {
             // El usuario pudo pulsar play antes de saber que el motor falló:
             // hay que soltar wake lock y foco de audio, no solo la interfaz.
             // Si suena la voz IA, no hace falta el motor del teléfono para seguir.
-            if (playing && !iaSonando) pause()
+            if (playing && !iaSonando && sinVozIaQueCubra()) pause()
             return
         }
 
@@ -399,9 +428,17 @@ class PlaybackService : Service() {
         // Si el usuario pidió reproducir antes de que el motor estuviera listo.
         // Con la voz IA la lectura ya arrancó sin esperarlo.
         if (playing && !iaSonando) {
-            if (engineReady) speakCurrentVerse() else pause()
+            if (engineReady) speakCurrentVerse() else if (sinVozIaQueCubra()) pause()
         }
     }
+
+    /**
+     * El motor del teléfono no puede hablar: ¿hay que parar ya? No, si la voz IA
+     * está activada y la lectura todavía no llegó a pedir el motor (el capítulo
+     * se está cargando y quizá tenga voz IA). En ese caso decide
+     * speakCurrentVerse() al terminar la carga: si no hay voz IA, pausa.
+     */
+    private fun sinVozIaQueCubra(): Boolean = esperandoMotor || !prefs.vozIaActiva
 
     /** Prueba variantes de español, de la más cercana a México a la más genérica. */
     private fun selectSpanishVoice(engine: TextToSpeech): Locale? {
@@ -430,7 +467,8 @@ class PlaybackService : Service() {
             engine.setSpeechRate(prefs.speechRate)
             engine.setPitch(prefs.pitch)
         }
-        vozIa.velocidad(prefs.speechRate, prefs.pitch)
+        // La voz IA solo cambia de velocidad: el tono deformaría la voz grabada.
+        vozIa.velocidad(prefs.speechRate)
     }
 
     private val utteranceListener = object : UtteranceProgressListener() {
@@ -473,7 +511,14 @@ class PlaybackService : Service() {
                     if (start >= block.verseStarts[i]) index = i else break
                 }
                 val verse = block.startVerse + index
-                if (verse != position.verse && verse <= block.endVerse) {
+                if (verse > block.endVerse) return@post
+                if (enModoLecturas) {
+                    // El tramo es de la lectura de la misa: se recuerda por dónde
+                    // va para reanudar ahí, sin tocar la posición de la Biblia.
+                    lecturaVerso = verse
+                    return@post
+                }
+                if (verse != position.verse) {
                     position = position.copy(verse = verse)
                     savePosition()
                     publishState()
@@ -505,7 +550,7 @@ class PlaybackService : Service() {
     private fun play() {
         if (playing) return
         // Cada ▶ le da otra oportunidad a la voz IA si un archivo falló.
-        iaFallida = false
+        iaFallidos.clear()
         if (engineFailed && !hayVozIa()) {
             // El motor ya confirmó que no puede hablar: no se toma wake lock ni
             // foco de audio, ni se deja una notificación de «reproduciendo».
@@ -521,6 +566,7 @@ class PlaybackService : Service() {
         consecutiveErrors = 0
         resumeOnFocusGain = false
         acquireWakeLock()
+        escucharAudifonos()
         cancelIdleStop()
         publishState()
         updateNotification()
@@ -532,6 +578,23 @@ class PlaybackService : Service() {
             withContext(Dispatchers.IO) { audioLocal.recargarSiCambio() }
             if (playing) ensureChapterLoaded { speakCurrentVerse() }
         }
+    }
+
+    /**
+     * ▶ de la notificación, la pantalla de bloqueo, los audífonos o «Seguir».
+     * Si en la pausa la pantalla movió la posición guardada (se hojeó otro
+     * capítulo), se sigue desde ahí, como dice «Continuar escuchando»; si no
+     * cambió, se reanuda en la misma palabra.
+     */
+    private fun playDesdeControles() {
+        if (!playing && !enModoLecturas) {
+            val guardada = repo.normalizeCheap(prefs.lastPosition)
+            if (guardada != position) {
+                stopSpeaking()
+                position = guardada
+            }
+        }
+        play()
     }
 
     /** Hay voz IA instalada y activada, aunque quizá no para este capítulo. */
@@ -547,18 +610,24 @@ class PlaybackService : Service() {
         if (!playing) return
         playing = false
         activeUtteranceId = null
+        esperandoMotor = false
         runCatching { tts?.stop() }
         // La voz IA se pausa de verdad: al volver sigue en la misma palabra.
         vozIa.pausar()
         releaseWakeLock()
-        savePosition()
+        // Sin savePosition(): lo que suena ya se guardó versículo a versículo, y
+        // guardar aquí pisaría la posición que la pantalla guardó mientras tanto
+        // (por ejemplo, un capítulo elegido mientras sonaba la misa).
         publishState()
         if (abandonFocus) {
             resumeOnFocusGain = false
+            dejarDeEscucharAudifonos()
             abandonAudioFocus()
             demoteFromForeground()
             scheduleIdleStop()
         } else {
+            // El aviso de los audífonos sigue puesto: si se desconectan durante
+            // la llamada, no hay que reanudar después por el altavoz.
             // Se mantiene en primer plano: así, al recuperar el foco, se sigue
             // hablando sin volver a llamar a startForeground() desde segundo
             // plano, que está restringido desde Android 12.
@@ -572,10 +641,41 @@ class PlaybackService : Service() {
             pause(abandonFocus = true)
         } else {
             resumeOnFocusGain = false
+            dejarDeEscucharAudifonos()
             abandonAudioFocus()
             demoteFromForeground()
             scheduleIdleStop()
         }
+    }
+
+    /**
+     * Al desconectar los audífonos (cable o Bluetooth) Android avisa con
+     * ACTION_AUDIO_BECOMING_NOISY: se pausa, para no seguir por el altavoz.
+     */
+    private val audifonosReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            if (intent?.action == AudioManager.ACTION_AUDIO_BECOMING_NOISY) userPause()
+        }
+    }
+
+    /** Solo mientras suena (o espera reanudar tras una llamada). */
+    private fun escucharAudifonos() {
+        if (escuchandoAudifonos) return
+        escuchandoAudifonos = runCatching {
+            // Lo envía el sistema; EXPORTED para recibirlo igual en todas las versiones.
+            ContextCompat.registerReceiver(
+                this,
+                audifonosReceiver,
+                IntentFilter(AudioManager.ACTION_AUDIO_BECOMING_NOISY),
+                ContextCompat.RECEIVER_EXPORTED,
+            )
+        }.isSuccess
+    }
+
+    private fun dejarDeEscucharAudifonos() {
+        if (!escuchandoAudifonos) return
+        escuchandoAudifonos = false
+        runCatching { unregisterReceiver(audifonosReceiver) }
     }
 
     private fun stopEverything() {
@@ -587,8 +687,10 @@ class PlaybackService : Service() {
         vozIa.detener()
         sleepJob?.cancel()
         sleepJob = null
-        PlayerBus.update { it.copy(isPlaying = false, sleepTimerEndsAt = 0L) }
-        savePosition()
+        // La misa que había en memoria se pierde con el servicio: que la
+        // pantalla no ofrezca «Seguir escuchando» algo que ya no se puede seguir.
+        PlayerBus.update { it.copy(isPlaying = false, sleepTimerEndsAt = 0L).sinMisa() }
+        dejarDeEscucharAudifonos()
         releaseWakeLock()
         abandonAudioFocus()
         ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)
@@ -605,6 +707,8 @@ class PlaybackService : Service() {
         currentBlock = null
         tramoIa = null
         iaSonando = false
+        versoPedidoIa = -1
+        esperandoMotor = false
         runCatching { tts?.stop() }
         vozIa.detener()
     }
@@ -649,6 +753,10 @@ class PlaybackService : Service() {
             return
         }
         if (!playing) return
+        esperandoMotor = false
+        // Se renueva el plazo del wake lock en cada tramo: si no, caducaría a
+        // las 3 horas de escucha seguida.
+        acquireWakeLock()
 
         val chapter = currentChapter
         if (chapter == null || chapter.bookNumber != position.book ||
@@ -658,12 +766,12 @@ class PlaybackService : Service() {
             return
         }
 
-        val tramosIa = if (prefs.vozIaActiva && !iaFallida) {
+        val tramosIa = if (prefs.vozIaActiva) {
             audioLocal.capitulo(chapter.bookNumber, chapter.chapterNumber, chapter.verses.size)
         } else {
             null
         }
-        val tramo = tramosIa?.firstOrNull { position.verse in it }
+        val tramo = tramosIa?.firstOrNull { position.verse in it }?.takeIf { it.fuente !in iaFallidos }
         if (tramo != null) {
             hablarConIa("ia-${chapter.bookNumber}-${chapter.chapterNumber}", tramo, position.verse)
             savePosition()
@@ -675,8 +783,9 @@ class PlaybackService : Service() {
         iaSonando = false
         val engine = tts ?: return
         if (!engineReady) {
-            // Sin motor del teléfono y sin voz IA para este capítulo: no hay con qué leerlo.
-            if (engineFailed) pause()
+            // Sin motor del teléfono y sin voz IA para este capítulo: no hay con qué
+            // leerlo. Si el motor aún está arrancando, onTtsInit() seguirá.
+            if (engineFailed) pause() else esperandoMotor = true
             return
         }
 
@@ -770,6 +879,8 @@ class PlaybackService : Service() {
 
     private fun speakLecturaActual() {
         if (!playing) return
+        esperandoMotor = false
+        acquireWakeLock()
 
         val lectura = lecturas.getOrNull(lecturaIndex)
         if (lectura == null) {
@@ -781,12 +892,12 @@ class PlaybackService : Service() {
             return
         }
 
-        val tramosIa = if (prefs.vozIaActiva && !iaFallida) {
+        val tramosIa = if (prefs.vozIaActiva) {
             audioLocal.lectura(lectura.clave, lectura.versiculos.size)
         } else {
             null
         }
-        val tramo = tramosIa?.firstOrNull { lecturaVerso in it }
+        val tramo = tramosIa?.firstOrNull { lecturaVerso in it }?.takeIf { it.fuente !in iaFallidos }
         if (tramo != null) {
             hablarConIa("il-$lecturaIndex", tramo, lecturaVerso)
             publishState()
@@ -797,13 +908,14 @@ class PlaybackService : Service() {
         iaSonando = false
         val engine = tts ?: return
         if (!engineReady) {
-            if (engineFailed) pause()
+            if (engineFailed) pause() else esperandoMotor = true
             return
         }
 
         // Al empezar cada lectura se anuncia cuál es y de dónde viene, igual
-        // que se hace en misa antes de proclamarla.
-        val cabecera = if (lecturaVerso == 0) "${lectura.titulo}. ${lectura.cita}. " else null
+        // que se hace en misa antes de proclamarla (y con las mismas palabras
+        // que la voz IA: «Primera lectura del libro del profeta Daniel…»).
+        val cabecera = if (lecturaVerso == 0) "${lectura.anuncio} " else null
         val block = buildBlockFrom(lectura.versiculos, lecturaVerso, cabecera, false)
         if (block == null) {
             avanzarLectura()
@@ -847,13 +959,50 @@ class PlaybackService : Service() {
         salirDeLecturas()
     }
 
+    /** Se terminaron las lecturas (o se pidió salir): pausa y vuelve a la Biblia. */
     private fun salirDeLecturas() {
         pause()
+        stopSpeaking()
+        olvidarLecturas()
+        publishState()
+        updateNotification()
+    }
+
+    /**
+     * Deja el modo lecturas sin tocar la reproducción: lo siguiente que suene
+     * es la Biblia, desde su posición guardada.
+     */
+    private fun olvidarLecturas() {
         lecturas = emptyList()
         lecturaIndex = 0
         lecturaVerso = 0
+        lecturasTitulo = ""
         ColaLecturas.limpiar()
+    }
+
+    /** ⏩/⏪ en las lecturas de la misa: otro versículo dentro de la misma lectura. */
+    private fun pasoVersoLectura(delta: Int) {
+        val lectura = lecturas.getOrNull(lecturaIndex) ?: return
+        stopSpeaking()
+        lecturaVerso = (lecturaVerso + delta).coerceIn(0, lectura.versiculos.lastIndex.coerceAtLeast(0))
+        reiniciarLectura()
+    }
+
+    /** ⏭/⏮ en las lecturas de la misa: la lectura siguiente o la anterior. */
+    private fun pasoLectura(delta: Int) {
+        val destino = lecturaIndex + delta
+        if (destino !in lecturas.indices) return
+        stopSpeaking()
+        lecturaIndex = destino
+        lecturaVerso = 0
+        reiniciarLectura()
+    }
+
+    /** Como [restartCurrent], para las lecturas: no guarda nada de la Biblia. */
+    private fun reiniciarLectura() {
         publishState()
+        updateNotification()
+        if (playing) speakLecturaActual()
     }
 
     // ---------------------------------------------------------------- voz IA
@@ -870,10 +1019,13 @@ class PlaybackService : Service() {
         currentBlock = SpeechBlock(tramo.desde, tramo.hasta, "", IntArray(0))
         tramoIa = tramo
         iaSonando = true
-        if (!vozIa.reanudar(id, tramo.archivo)) {
+        versoPedidoIa = -1
+        if (!vozIa.reanudar(id, tramo.fuente)) {
             val dentro = verso - tramo.desde
             val fraccion = if (dentro > 0) tramo.inicios.getOrElse(dentro) { 0f } else 0f
-            vozIa.hablar(id, tramo.archivo, fraccion)
+            // Antes de hablar(): el primer aviso de progreso llega dentro de esa llamada.
+            if (fraccion > 0f) versoPedidoIa = verso
+            vozIa.hablar(id, tramo.fuente, fraccion)
         }
     }
 
@@ -883,14 +1035,26 @@ class PlaybackService : Service() {
         }
 
         override fun onProgreso(id: String, fraccion: Float) {
-            // En las lecturas de la misa no se toca la posición de la Biblia.
-            if (id != activeUtteranceId || !playing || enModoLecturas) return
+            if (id != activeUtteranceId || !playing) return
             val tramo = tramoIa ?: return
             var indice = 0
             for (i in tramo.inicios.indices) {
                 if (fraccion >= tramo.inicios[i]) indice = i else break
             }
             val verse = (tramo.desde + indice).coerceAtMost(tramo.hasta)
+            // Tras saltar a un versículo el audio empieza un poco antes: no se
+            // retrocede el resaltado hasta que llegue al pedido. Así tampoco
+            // se quedan en el sitio varios ⏩ seguidos.
+            if (versoPedidoIa >= 0) {
+                if (verse < versoPedidoIa) return
+                versoPedidoIa = -1
+            }
+            if (enModoLecturas) {
+                // En las lecturas de la misa no se toca la posición de la Biblia:
+                // se recuerda el versículo de la lectura, para reanudar ahí.
+                lecturaVerso = verse
+                return
+            }
             if (verse != position.verse) {
                 position = position.copy(verse = verse)
                 savePosition()
@@ -904,18 +1068,21 @@ class PlaybackService : Service() {
 
         override fun onFallo(id: String) {
             if (id != activeUtteranceId) return
-            // Un archivo dañado o a medio copiar: se sigue con la voz del teléfono
-            // desde el mismo versículo, y la voz IA se vuelve a probar al pulsar ▶.
-            iaFallida = true
+            // Un archivo dañado o a medio copiar: ese tramo sigue con la voz del
+            // teléfono desde el mismo versículo; los demás, con la voz IA. El
+            // archivo que falló se vuelve a probar al pulsar ▶.
+            tramoIa?.let { iaFallidos.add(it.fuente) }
             iaSonando = false
+            tramoIa = null
+            versoPedidoIa = -1
             vozIa.detener()
             PlayerBus.update {
                 it.copy(avisoVoz = "Un tramo de la voz IA no se pudo reproducir; sigo con la voz del teléfono.")
             }
             publishState()
-            if (playing) {
-                if (engineReady) speakCurrentVerse() else pause()
-            }
+            // Si el motor del teléfono no puede hablar, speakCurrentVerse() pausa;
+            // si aún está arrancando, espera a onTtsInit().
+            if (playing) speakCurrentVerse()
         }
     }
 
@@ -937,19 +1104,52 @@ class PlaybackService : Service() {
             return
         }
 
+        val next = repo.nextChapter(position.book, position.chapter)
+
         if (!prefs.autoContinue) {
+            // Se para al acabar el capítulo, pero ya en el versículo 1 del
+            // siguiente: así ▶ sigue ahí en vez de repetir el final de este.
+            // stopSpeaking() suelta el tramo terminado para que no se reanude.
+            stopSpeaking()
+            if (next != null) {
+                position = Position(next.first, next.second, 0)
+                savePosition()
+            }
             pause()
+            if (next != null) ensureChapterLoaded { }
             return
         }
 
-        val next = repo.nextChapter(position.book, position.chapter)
         if (next == null) {
             // Fin de Apocalipsis: se terminó la Biblia.
+            stopSpeaking()
             pause()
             return
         }
         position = Position(next.first, next.second, 0)
         ensureChapterLoaded { speakCurrentVerse() }
+    }
+
+    /**
+     * ⏩/⏪. En las lecturas de la misa se mueve dentro de la lectura; si la
+     * orden viene de la pantalla de la Biblia ([desdeBiblia]), se sale antes de
+     * las lecturas y se mueve la Biblia.
+     */
+    private fun pasoVerso(delta: Int, desdeBiblia: Boolean) {
+        if (enModoLecturas && desdeBiblia) {
+            stopSpeaking()
+            olvidarLecturas()
+        }
+        if (enModoLecturas) pasoVersoLectura(delta) else stepVerse(delta)
+    }
+
+    /** ⏭/⏮: igual que [pasoVerso], pero de lectura en lectura o de capítulo en capítulo. */
+    private fun pasoCapitulo(delta: Int, desdeBiblia: Boolean) {
+        if (enModoLecturas && desdeBiblia) {
+            stopSpeaking()
+            olvidarLecturas()
+        }
+        if (enModoLecturas) pasoLectura(delta) else stepChapter(delta)
     }
 
     private fun stepVerse(delta: Int) {
@@ -967,10 +1167,14 @@ class PlaybackService : Service() {
                     position = position.copy(verse = 0)
                     restartCurrent()
                 } else {
+                    // Mismo control que ensureChapterLoaded(): una carga vieja no
+                    // debe pisar a una nueva, ni al revés.
+                    val token = ++chapterLoadSeq
                     scope.launch {
                         val prevChapter = withContext(Dispatchers.IO) {
                             repo.chapter(prev.first, prev.second)
                         }
+                        if (token != chapterLoadSeq) return@launch
                         currentChapter = prevChapter
                         position = Position(prev.first, prev.second, prevChapter.verses.lastIndex.coerceAtLeast(0))
                         restartCurrent()
@@ -1007,8 +1211,22 @@ class PlaybackService : Service() {
     }
 
     private fun seekTo(target: Position, autoPlay: Boolean) {
+        // Elegir un sitio de la Biblia (el lector, «Continuar escuchando») sale
+        // de las lecturas de la misa: si no, seguiría sonando la misa.
+        val veniaDeLecturas = enModoLecturas
+        if (veniaDeLecturas) {
+            stopSpeaking()
+            olvidarLecturas()
+        }
+        val destino = repo.normalizeCheap(target)
+        if (autoPlay && !playing && !veniaDeLecturas && destino == position) {
+            // ▶ en el mismo versículo donde se pausó: se reanuda en la misma
+            // palabra (voz IA) en vez de repetir el versículo desde el principio.
+            play()
+            return
+        }
         stopSpeaking()
-        position = repo.normalizeCheap(target)
+        position = destino
         if (autoPlay && !playing) {
             play()
         } else {
@@ -1035,17 +1253,36 @@ class PlaybackService : Service() {
                 engineReady = engineReady,
                 isPlaying = playing,
                 position = position,
-                bookName = chapter?.bookName ?: runCatching { repo.book(position.book).name }.getOrDefault(""),
+                bookName = nombreDelLibro(),
                 verseCount = chapter?.verseCount ?: 0,
                 speechRate = prefs.speechRate,
                 pitch = prefs.pitch,
                 enLecturas = enModoLecturas,
                 lecturaIndex = lecturaIndex,
                 lecturaTitulo = lecturas.getOrNull(lecturaIndex)?.titulo ?: "",
+                lecturasTitulo = if (enModoLecturas) lecturasTitulo else "",
                 vozIa = iaSonando,
             )
         }
         updateMediaSession()
+    }
+
+    /** Nombre del libro de [position], aunque el capítulo cargado sea de otro libro. */
+    private fun nombreDelLibro(): String =
+        currentChapter?.takeIf { it.bookNumber == position.book }?.bookName
+            ?: runCatching { repo.book(position.book).name }.getOrDefault("")
+
+    /**
+     * Título y subtítulo de lo que suena, para la notificación y para la sesión
+     * multimedia (la pantalla de bloqueo): la lectura de la misa o el versículo.
+     */
+    private fun textosDeLoQueSuena(): Pair<String, String> {
+        val lectura = lecturas.getOrNull(lecturaIndex)
+        if (lectura != null) {
+            val subtitulo = if (lecturasTitulo.isBlank()) lectura.titulo else "${lectura.titulo} · $lecturasTitulo"
+            return lectura.cita to subtitulo
+        }
+        return position.reference(nombreDelLibro()) to getString(R.string.translation_name)
     }
 
     // ---------------------------------------------------------------- temporizador
@@ -1090,10 +1327,10 @@ class PlaybackService : Service() {
 
     private val focusListener = AudioManager.OnAudioFocusChangeListener { change ->
         when (change) {
-            AudioManager.AUDIOFOCUS_LOSS -> {
-                resumeOnFocusGain = false
-                pause()
-            }
+            // Otra app tomó el audio para quedarse. userPause() cubre también el
+            // caso de estar ya en pausa esperando reanudar: suelta el foco, baja
+            // de primer plano y programa el cierre.
+            AudioManager.AUDIOFOCUS_LOSS -> userPause()
             AudioManager.AUDIOFOCUS_LOSS_TRANSIENT,
             AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK -> {
                 // La voz hablada no se entiende con el volumen bajado, así que
@@ -1151,8 +1388,14 @@ class PlaybackService : Service() {
 
     // ---------------------------------------------------------------- wake lock
 
+    /** Toma el wake lock, o renueva su plazo si ya estaba tomado. */
     private fun acquireWakeLock() {
-        if (wakeLock?.isHeld == true) return
+        wakeLock?.takeIf { it.isHeld }?.let {
+            // Sin conteo de referencias, volver a llamar a acquire() solo
+            // reinicia la cuenta del plazo.
+            runCatching { it.acquire(WAKE_LOCK_TIMEOUT_MS) }
+            return
+        }
         val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
         wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "BibliaVoz::lectura").apply {
             setReferenceCounted(false)
@@ -1168,20 +1411,22 @@ class PlaybackService : Service() {
     // ---------------------------------------------------------------- MediaSession
 
     private val mediaSessionCallback = object : MediaSessionCompat.Callback() {
-        override fun onPlay() = play()
+        override fun onPlay() = playDesdeControles()
         override fun onPause() = userPause()
         override fun onStop() = stopEverything()
-        override fun onSkipToNext() = stepChapter(+1)
-        override fun onSkipToPrevious() = stepChapter(-1)
+        // Pantalla de bloqueo, audífonos, coche: en las lecturas de la misa pasan
+        // de lectura en lectura, sin mover la posición de la Biblia.
+        override fun onSkipToNext() = pasoCapitulo(+1, desdeBiblia = false)
+        override fun onSkipToPrevious() = pasoCapitulo(-1, desdeBiblia = false)
     }
 
     private fun updateMediaSession() {
-        val chapter = currentChapter
-        val bookName = chapter?.bookName ?: ""
+        // Lo mismo que la notificación: Android 13+ muestra esto, no la notificación.
+        val (titulo, subtitulo) = textosDeLoQueSuena()
         mediaSession.setMetadata(
             MediaMetadataCompat.Builder()
-                .putString(MediaMetadataCompat.METADATA_KEY_TITLE, position.reference(bookName))
-                .putString(MediaMetadataCompat.METADATA_KEY_ARTIST, getString(R.string.translation_name))
+                .putString(MediaMetadataCompat.METADATA_KEY_TITLE, titulo)
+                .putString(MediaMetadataCompat.METADATA_KEY_ARTIST, subtitulo)
                 .putString(MediaMetadataCompat.METADATA_KEY_ALBUM, getString(R.string.app_name))
                 .build()
         )
@@ -1229,8 +1474,6 @@ class PlaybackService : Service() {
     }
 
     private fun buildNotification(): Notification {
-        val chapter = currentChapter
-        val bookName = chapter?.bookName ?: runCatching { repo.book(position.book).name }.getOrDefault("")
         val contentIntent = PendingIntent.getActivity(
             this,
             0,
@@ -1246,13 +1489,7 @@ class PlaybackService : Service() {
         val playPauseLabel =
             getString(if (playing) R.string.action_pause else R.string.action_play)
 
-        val lecturaActual = lecturas.getOrNull(lecturaIndex)
-        val titulo = if (lecturaActual != null) lecturaActual.cita else position.reference(bookName)
-        val subtitulo = if (lecturaActual != null) {
-            "${lecturaActual.titulo} · ${ColaLecturas.titulo}"
-        } else {
-            getString(R.string.translation_name)
-        }
+        val (titulo, subtitulo) = textosDeLoQueSuena()
 
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_notification)
@@ -1282,17 +1519,26 @@ class PlaybackService : Service() {
 
     private fun promoteToForeground() {
         val notification = buildNotification()
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            ServiceCompat.startForeground(
-                this,
-                NOTIFICATION_ID,
-                notification,
-                ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK,
-            )
+        // Desde Android 12, volver a primer plano con la app en segundo plano
+        // puede estar prohibido (ForegroundServiceStartNotAllowedException).
+        // Mejor seguir leyendo con la notificación normal que cerrar la app.
+        val ok = runCatching {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                ServiceCompat.startForeground(
+                    this,
+                    NOTIFICATION_ID,
+                    notification,
+                    ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK,
+                )
+            } else {
+                startForeground(NOTIFICATION_ID, notification)
+            }
+        }.isSuccess
+        if (ok) {
+            isForeground = true
         } else {
-            startForeground(NOTIFICATION_ID, notification)
+            runCatching { notificationManager.notify(NOTIFICATION_ID, notification) }
         }
-        isForeground = true
     }
 
     /** En pausa dejamos la notificación pero el servicio deja de ser "primer plano". */
@@ -1337,6 +1583,7 @@ class PlaybackService : Service() {
         const val EXTRA_AUTOPLAY = "autoplay"
         const val EXTRA_ENGINE_CHANGED = "engine_changed"
         const val EXTRA_LECTURA = "lectura"
+        const val EXTRA_DESDE_BIBLIA = "desde_biblia"
 
         private const val CHANNEL_ID = "playback"
         private const val NOTIFICATION_ID = 1001
@@ -1364,10 +1611,19 @@ class PlaybackService : Service() {
         fun pause(context: Context) = send(context, ACTION_PAUSE)
         fun toggle(context: Context) = send(context, ACTION_TOGGLE)
         fun stop(context: Context) = send(context, ACTION_STOP)
-        fun nextVerse(context: Context) = send(context, ACTION_NEXT_VERSE)
-        fun previousVerse(context: Context) = send(context, ACTION_PREV_VERSE)
-        fun nextChapter(context: Context) = send(context, ACTION_NEXT_CHAPTER)
-        fun previousChapter(context: Context) = send(context, ACTION_PREV_CHAPTER)
+        /*
+         * ⏩⏪⏭⏮ pedidos desde una pantalla. Con [desdeBiblia] (el lector) se sale
+         * de las lecturas de la misa y se mueve la Biblia; sin él (como la
+         * notificación), en las lecturas se mueve dentro de ellas.
+         */
+        fun nextVerse(context: Context, desdeBiblia: Boolean = true) =
+            send(context, ACTION_NEXT_VERSE) { putExtra(EXTRA_DESDE_BIBLIA, desdeBiblia) }
+        fun previousVerse(context: Context, desdeBiblia: Boolean = true) =
+            send(context, ACTION_PREV_VERSE) { putExtra(EXTRA_DESDE_BIBLIA, desdeBiblia) }
+        fun nextChapter(context: Context, desdeBiblia: Boolean = true) =
+            send(context, ACTION_NEXT_CHAPTER) { putExtra(EXTRA_DESDE_BIBLIA, desdeBiblia) }
+        fun previousChapter(context: Context, desdeBiblia: Boolean = true) =
+            send(context, ACTION_PREV_CHAPTER) { putExtra(EXTRA_DESDE_BIBLIA, desdeBiblia) }
 
         fun seek(context: Context, position: Position, autoPlay: Boolean) =
             send(context, ACTION_SEEK) {

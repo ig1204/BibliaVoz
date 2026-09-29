@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Copia de seguridad en Android 6 a 11 (android:fullBackupContent).
+  Se guarda todo menos el audio de la voz IA (getExternalFilesDir("voz-ia")):
+  en otro teléfono se vuelve a copiar con instalar-audio.bat.
+-->
+<full-backup-content>
+    <exclude domain="external" path="voz-ia" />
+</full-backup-content>

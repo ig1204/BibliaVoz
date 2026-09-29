@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Copia de seguridad y paso a un teléfono nuevo en Android 12 en adelante
+  (android:dataExtractionRules). Igual que backup_rules.xml: todo menos el
+  audio de la voz IA, que se vuelve a copiar con instalar-audio.bat.
+-->
+<data-extraction-rules>
+    <cloud-backup>
+        <exclude domain="external" path="voz-ia" />
+    </cloud-backup>
+    <device-transfer>
+        <exclude domain="external" path="voz-ia" />
+    </device-transfer>
+</data-extraction-rules>

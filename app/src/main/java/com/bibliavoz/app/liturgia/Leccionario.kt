@@ -3,6 +3,7 @@ package com.bibliavoz.app.liturgia
 import android.content.Context
 import com.bibliavoz.app.data.BibleRepository
 import com.bibliavoz.app.data.BibleVersion
+import com.bibliavoz.app.voz.Anuncios
 import com.bibliavoz.app.voz.ClaveLectura
 import org.json.JSONArray
 import org.json.JSONObject
@@ -30,6 +31,8 @@ data class LecturaConTexto(
     val versiculos: List<String>,
     /** Identifica la lectura para encontrar su audio de voz IA ([ClaveLectura]). */
     val clave: String = "",
+    /** Lo que se dice antes de leerla ([Anuncios.lectura]), igual que la voz IA. */
+    val anuncio: String = "$titulo. $cita.",
 )
 
 /**
@@ -37,7 +40,8 @@ data class LecturaConTexto(
  *
  * No está indexada por fecha —eso caducaría— sino por CLAVE LITÚRGICA, que
  * [CalendarioLiturgico] sabe calcular para cualquier día. Las fiestas de fecha
- * fija (santoral) van en una tabla aparte y tienen prioridad.
+ * fija (santoral) van en una tabla aparte, con su nombre y su grado, y
+ * [Precedencia] decide cuándo le ganan al día.
  */
 class Leccionario private constructor(context: Context) {
 
@@ -53,18 +57,23 @@ class Leccionario private constructor(context: Context) {
 
     private val fijas: JSONObject by lazy { raiz.optJSONObject("fijas") ?: JSONObject() }
     private val temporales: JSONObject by lazy { raiz.optJSONObject("temporales") ?: JSONObject() }
+    private val celebraciones: Map<String, Celebracion> by lazy { Precedencia.celebraciones(raiz) }
 
     /** Lecturas del día, o `null` si ese día no está cubierto por la tabla. */
     fun delDia(fecha: LocalDate): LecturasDelDia? {
-        val porFecha = fijas.optJSONArray(CalendarioLiturgico.claveFija(fecha))
-        val porTiempo = temporales.optJSONArray(CalendarioLiturgico.claveTemporal(fecha))
-        val array = porFecha ?: porTiempo ?: return null
+        val dia = Precedencia.dia(fecha, celebraciones)
+        val delTiempo = temporales.optJSONArray(Precedencia.claveLecturasDelTiempo(temporales, dia))
+            ?.let { parse(it) } ?: emptyList()
+        val deLaFiesta = Precedencia.claveLecturasFija(fijas, dia)
+            ?.let { fijas.optJSONArray(it) }
+            ?.let { parse(it) } ?: emptyList()
 
-        val lecturas = parse(array)
+        val lecturas = Precedencia.combinar(delTiempo, deLaFiesta, dia.fija?.grado) { it.titulo }
         if (lecturas.isEmpty()) return null
         return LecturasDelDia(
             fecha = fecha,
-            descripcion = CalendarioLiturgico.descripcion(fecha),
+            // Si la fiesta no tuviera lecturas se leería el día: la cabecera, también.
+            descripcion = if (deLaFiesta.isEmpty()) CalendarioLiturgico.descripcion(fecha) else dia.descripcion,
             lecturas = lecturas,
         )
     }
@@ -111,6 +120,11 @@ class Leccionario private constructor(context: Context) {
                 cita = lectura.cita,
                 versiculos = versiculos,
                 clave = ClaveLectura.de(lectura.titulo, lectura.libro, lectura.tramos),
+                anuncio = Anuncios.lectura(
+                    lectura.titulo,
+                    runCatching { repo.book(lectura.libro).name }.getOrDefault(""),
+                    lectura.cita,
+                ),
             )
         }
     }

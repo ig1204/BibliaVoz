@@ -55,6 +55,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.bibliavoz.app.R
 import com.bibliavoz.app.data.BookInfo
 import com.bibliavoz.app.player.PlaybackService
+import com.bibliavoz.app.player.PlayerBus
 import java.text.Normalizer
 import java.util.Locale
 
@@ -172,7 +173,14 @@ fun BooksScreen(
                 onListen = {
                     ensureNotificationPermission()
                     val position = viewModel.savedPosition
-                    PlaybackService.seek(context, position, autoPlay = true)
+                    val player = PlayerBus.state.value
+                    if (PlaybackService.running && !player.enLecturas && player.position == position) {
+                        // Es justo lo que quedó en pausa (o lo que ya suena): se
+                        // reanuda en la misma palabra en vez de repetir el versículo.
+                        if (!player.isPlaying) PlaybackService.play(context)
+                    } else {
+                        PlaybackService.seek(context, position, autoPlay = true)
+                    }
                     onOpenReader(position.book, position.chapter)
                 },
                 onOpen = {
@@ -282,9 +290,12 @@ private fun ContinueCard(
     onOpen: () -> Unit,
 ) {
     val books by viewModel.books.collectAsStateWithLifecycle()
+    // Se observa al reproductor para que la tarjeta avance mientras se escucha
+    // desde esta pantalla (la posición guardada sola no avisa de sus cambios).
+    val player by PlayerBus.state.collectAsStateWithLifecycle()
     if (books.isEmpty()) return
 
-    val position = viewModel.savedPosition
+    val position = if (player.isPlaying && !player.enLecturas) player.position else viewModel.savedPosition
     val bookName = viewModel.bookName(position.book)
     if (bookName.isEmpty()) return
 

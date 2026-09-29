@@ -53,6 +53,7 @@ fun ReaderScreen(
     chapterNumber: Int,
     onBack: () -> Unit,
     onPickChapter: (Int) -> Unit,
+    onChapterShown: (Int, Int) -> Unit,
     ensureNotificationPermission: () -> Unit,
 ) {
     BackHandler(onBack = onBack)
@@ -78,26 +79,55 @@ fun ReaderScreen(
         )
     }
 
+    // Suena la Biblia. Durante las lecturas de la misa la posición del
+    // reproductor es la del capítulo guardado, no lo que se oye.
+    val bibleSounding = playerState.isPlaying && !playerState.enLecturas
+
     // Mientras la voz suena, la pantalla la sigue. Pero si el usuario se va a
     // hojear otro capítulo, deja de seguirla para no arrastrarlo de vuelta.
+    // También se sigue si se abre el capítulo guardado: «Continuar escuchando
+    // ▶» manda la voz aquí antes de que el servicio lo haya publicado.
     var following by remember {
         val current = PlayerBus.state.value.position
-        mutableStateOf(current.book == bookNumber && current.chapter == chapterNumber)
+        val saved = viewModel.savedPosition
+        mutableStateOf(
+            (current.book == bookNumber && current.chapter == chapterNumber) ||
+                (saved.book == bookNumber && saved.chapter == chapterNumber)
+        )
     }
 
-    LaunchedEffect(playerState.isPlaying, playerState.position) {
-        if (playerState.isPlaying && following) displayed = playerState.position
+    // También la última publicación, la de cuando deja de sonar: con «Continuar
+    // solo» apagado la voz se para ya en el versículo 1 del capítulo siguiente,
+    // y la pantalla tiene que ir ahí para que ▶ siga desde ese punto.
+    var sonabaBiblia by remember { mutableStateOf(false) }
+    LaunchedEffect(bibleSounding, playerState.position) {
+        if (following && !playerState.enLecturas && (bibleSounding || sonabaBiblia)) {
+            displayed = playerState.position
+        }
+        sonabaBiblia = bibleSounding
     }
 
     LaunchedEffect(displayed.book, displayed.chapter) {
         viewModel.loadChapter(displayed.book, displayed.chapter)
-        // Mientras suena la voz, la posición guardada la manda el servicio.
-        if (!playerState.isPlaying) viewModel.savePosition(displayed)
+        onChapterShown(displayed.book, displayed.chapter)
+    }
+
+    // Solo se guarda lo que el usuario cambia estando aquí (capítulo o
+    // versículo). La primera vez no: la pantalla puede ser un lector que
+    // vuelve con Atrás, y pisaría la posición buena con la suya.
+    // Mientras suena la Biblia, la posición guardada la manda el servicio.
+    var firstPass by remember { mutableStateOf(true) }
+    LaunchedEffect(displayed) {
+        if (firstPass) {
+            firstPass = false
+        } else if (!bibleSounding) {
+            viewModel.savePosition(displayed)
+        }
     }
 
     val listState = rememberLazyListState()
     val onSameChapter = playerState.position.sameChapter(displayed)
-    val highlighted = if (playerState.isPlaying && onSameChapter) {
+    val highlighted = if (bibleSounding && onSameChapter) {
         playerState.position.verse
     } else {
         displayed.verse
@@ -105,9 +135,36 @@ fun ReaderScreen(
 
     // Desplazar la lista para que el versículo que suena quede a la vista,
     // dejando uno de contexto por encima.
-    LaunchedEffect(highlighted, playerState.isPlaying, displayed.book, displayed.chapter) {
-        if (playerState.isPlaying && onSameChapter) {
+    LaunchedEffect(highlighted, bibleSounding, displayed.book, displayed.chapter) {
+        if (bibleSounding && onSameChapter) {
             runCatching { listState.animateScrollToItem((highlighted - 1).coerceAtLeast(0)) }
+        }
+    }
+
+    // Sin la voz en este capítulo, llevar a la vista el versículo marcado: al
+    // abrir el capítulo guardado (Salmos 119:150), al cambiar de capítulo o al
+    // moverse con ⏪/⏩ en pausa. Si ya se ve (por ejemplo, el que se acaba de
+    // tocar), la lista no se mueve.
+    LaunchedEffect(chapter, displayed.verse) {
+        val loaded = chapter ?: return@LaunchedEffect
+        if (bibleSounding && onSameChapter) return@LaunchedEffect
+        if (loaded.bookNumber != displayed.book || loaded.chapterNumber != displayed.chapter) {
+            return@LaunchedEffect
+        }
+        val layout = listState.layoutInfo
+        val item = layout.visibleItemsInfo.firstOrNull { it.index == displayed.verse }
+        val inView = item != null && item.offset >= layout.viewportStartOffset &&
+            item.offset + item.size <= layout.viewportEndOffset
+        if (!inView) {
+            val target = (displayed.verse - 1).coerceAtLeast(0)
+            runCatching {
+                // Recién cargado aún no hay nada dibujado: salto directo.
+                if (layout.visibleItemsInfo.isEmpty()) {
+                    listState.scrollToItem(target)
+                } else {
+                    listState.animateScrollToItem(target)
+                }
+            }
         }
     }
 
@@ -202,7 +259,15 @@ fun ReaderScreen(
                         PlaybackService.pause(context)
                     } else {
                         following = true
-                        PlaybackService.seek(context, displayed, autoPlay = true)
+                        if (PlaybackService.running && !playerState.enLecturas &&
+                            playerState.position == displayed
+                        ) {
+                            // Se ve justo donde se pausó: se reanuda, y la voz IA
+                            // sigue en la misma palabra en vez de repetir el versículo.
+                            PlaybackService.play(context)
+                        } else {
+                            PlaybackService.seek(context, displayed, autoPlay = true)
+                        }
                     }
                 },
                 onPrevVerse = { moveVerse(-1) },

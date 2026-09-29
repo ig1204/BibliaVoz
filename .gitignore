@@ -1,6 +1,8 @@
 # Resultados de compilación
 build/
 .gradle/
+.kotlin/
+*.tmp
 *.apk
 *.aab
 

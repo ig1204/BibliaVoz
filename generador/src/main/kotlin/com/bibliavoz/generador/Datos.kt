@@ -1,6 +1,6 @@
 package com.bibliavoz.generador
 
-import com.bibliavoz.app.liturgia.CalendarioLiturgico
+import com.bibliavoz.app.liturgia.Precedencia
 import com.bibliavoz.app.voz.ClaveLectura
 import com.bibliavoz.app.voz.Tramos
 import org.json.JSONArray
@@ -63,13 +63,20 @@ class Leccionario(archivo: File) {
     private val raiz = JSONObject(archivo.readText(Charsets.UTF_8))
     private val fijas = raiz.optJSONObject("fijas") ?: JSONObject()
     private val temporales = raiz.optJSONObject("temporales") ?: JSONObject()
+    private val celebraciones = Precedencia.celebraciones(raiz)
 
-    /** Las lecturas de un día, con la misma prioridad que la app: primero las fiestas fijas. */
+    /**
+     * Las lecturas de un día, elegidas como en la app: la misma [Precedencia]
+     * decide si manda la fiesta de fecha fija o el tiempo litúrgico.
+     */
     fun delDia(fecha: LocalDate): List<Lectura> {
-        val array = fijas.optJSONArray(CalendarioLiturgico.claveFija(fecha))
-            ?: temporales.optJSONArray(CalendarioLiturgico.claveTemporal(fecha))
-            ?: return emptyList()
-        return parse(array)
+        val dia = Precedencia.dia(fecha, celebraciones)
+        val delTiempo = temporales.optJSONArray(Precedencia.claveLecturasDelTiempo(temporales, dia))
+            ?.let { parse(it) } ?: emptyList()
+        val deLaFiesta = Precedencia.claveLecturasFija(fijas, dia)
+            ?.let { fijas.optJSONArray(it) }
+            ?.let { parse(it) } ?: emptyList()
+        return Precedencia.combinar(delTiempo, deLaFiesta, dia.fija?.grado) { it.titulo }
     }
 
     /** Todas las lecturas distintas del leccionario, en un orden estable. */

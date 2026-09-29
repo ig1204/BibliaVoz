@@ -67,44 +67,80 @@ class CalendarioLiturgicoTest {
         assertEquals(2027, CalendarioLiturgico.anioLiturgico(LocalDate.of(2027, 6, 1)))
     }
 
+    @Test
+    fun `con el Bautismo en lunes las semanas no se atrasan`() {
+        // 2029: Epifanía el domingo 7 de enero, Bautismo el lunes 8. El domingo
+        // 14 ya es el 2º del Tiempo Ordinario, como en el script que hizo la tabla.
+        assertEquals(LocalDate.of(2029, 1, 8), CalendarioLiturgico.bautismo(2029))
+        assertEquals("ORD-1-2-I", CalendarioLiturgico.claveTemporal(LocalDate.of(2029, 1, 9)))
+        assertEquals("ORD-2-0-A", CalendarioLiturgico.claveTemporal(LocalDate.of(2029, 1, 14)))
+        assertEquals("ORD-2-1-I", CalendarioLiturgico.claveTemporal(LocalDate.of(2029, 1, 15)))
+        assertEquals("ORD-6-2-I", CalendarioLiturgico.claveTemporal(LocalDate.of(2029, 2, 13)))
+        // Con el Bautismo en domingo no cambia nada.
+        assertEquals("ORD-2-0-B", CalendarioLiturgico.claveTemporal(LocalDate.of(2027, 1, 17)))
+        // El Bautismo en lunes lleva el ciclo dominical: su evangelio es del ciclo A/B/C.
+        assertEquals("BAUTISMO-A", CalendarioLiturgico.claveTemporal(LocalDate.of(2029, 1, 8)))
+    }
+
+    @Test
+    fun `las ferias del 17 al 24 son solo de diciembre`() {
+        // El Adviento de 2026 empieza el 29 de noviembre: el 30 es una feria normal.
+        assertEquals("ADV-1-1-I", CalendarioLiturgico.claveTemporal(LocalDate.of(2026, 11, 30)))
+        assertEquals("ADV-1-1-II", CalendarioLiturgico.claveTemporal(LocalDate.of(2027, 11, 29)))
+        assertEquals("ADVDIC-17", CalendarioLiturgico.claveTemporal(LocalDate.of(2026, 12, 17)))
+        assertEquals("Lunes de la semana 1 de Adviento · Ciclo I", CalendarioLiturgico.descripcion(LocalDate.of(2026, 11, 30)))
+    }
+
+    @Test
+    fun `Navidad tiene su clave aunque caiga en domingo`() {
+        assertEquals("NAV-12-25", CalendarioLiturgico.claveTemporal(LocalDate.of(2026, 12, 25)))
+        // 2033: Navidad en domingo; la Sagrada Familia pasa al viernes 30.
+        assertEquals("NAV-12-25", CalendarioLiturgico.claveTemporal(LocalDate.of(2033, 12, 25)))
+        assertEquals("SAGFAM-C", CalendarioLiturgico.claveTemporal(LocalDate.of(2033, 12, 30)))
+        assertEquals("SAGFAM-B", CalendarioLiturgico.claveTemporal(LocalDate.of(2026, 12, 27)))
+        assertEquals("La Natividad del Señor · Ciclo B", CalendarioLiturgico.descripcion(LocalDate.of(2026, 12, 25)))
+    }
+
     // ------------------------------------------------------------ cobertura
 
     /**
      * La prueba decisiva: los datos de origen terminan el 31 de octubre de 2027.
      * Si el diseño de claves litúrgicas funciona, los años siguientes tienen que
-     * encontrar sus lecturas igualmente, sin ningún dato nuevo.
+     * encontrar sus lecturas igualmente, sin ningún dato nuevo. Antes bastaba un
+     * 95 %; ahora no se admite ni un día sin lecturas (el script tampoco lo deja
+     * pasar), y se cuenta como la app: con la precedencia de las fiestas fijas.
      */
     @Test
     fun `hay lecturas para los anos posteriores a los datos de origen`() {
         val fijas = leccionario.getJSONObject("fijas")
         val temporales = leccionario.getJSONObject("temporales")
+        val celebraciones = Precedencia.celebraciones(leccionario)
 
         var total = 0
         var encontradas = 0
         val faltan = mutableListOf<String>()
 
-        var fecha = LocalDate.of(2028, 1, 1)
+        var fecha = LocalDate.of(2026, 9, 29)
         val fin = LocalDate.of(2032, 12, 31)
         while (fecha <= fin) {
             total++
-            val porFecha = fijas.optJSONArray(CalendarioLiturgico.claveFija(fecha))
-            val porTiempo = temporales.optJSONArray(CalendarioLiturgico.claveTemporal(fecha))
-            if (porFecha != null || porTiempo != null) {
+            val dia = Precedencia.dia(fecha, celebraciones)
+            val porFecha = Precedencia.claveLecturasFija(fijas, dia)?.let { fijas.optJSONArray(it) }
+            val porTiempo = temporales.optJSONArray(Precedencia.claveLecturasDelTiempo(temporales, dia))
+            // Una memoria solo trae sus lecturas propias: el resto es de la feria.
+            val completo = if (dia.fija?.grado == Grado.MEMORIA) porTiempo != null else (porFecha ?: porTiempo) != null
+            if (completo) {
                 encontradas++
             } else if (faltan.size < 25) {
-                faltan.add("$fecha -> ${CalendarioLiturgico.claveTemporal(fecha)}")
+                faltan.add("$fecha -> ${dia.claveTemporal} ${dia.fija?.clave ?: ""}")
             }
             fecha = fecha.plusDays(1)
         }
 
-        val porcentaje = 100.0 * encontradas / total
-        println("Cobertura 2028-2032: $encontradas de $total días ($porcentaje %)")
+        println("Cobertura 2026-2032: $encontradas de $total días")
         if (faltan.isNotEmpty()) println("Sin lecturas, primeros casos: " + faltan.joinToString("\n  ", "\n  "))
 
-        assertTrue(
-            "Cobertura insuficiente en años futuros: $porcentaje %",
-            porcentaje >= 95.0
-        )
+        assertEquals("Días sin lecturas:\n" + faltan.joinToString("\n"), total, encontradas)
     }
 
     /** Las citas deben resolverse a texto real dentro de la Biblia empaquetada. */
@@ -119,12 +155,13 @@ class CalendarioLiturgicoTest {
         }
 
         val temporales = leccionario.getJSONObject("temporales")
+        val fijas = leccionario.getJSONObject("fijas")
         var citas = 0
         var malas = 0
         val ejemplos = mutableListOf<String>()
 
-        for (clave in temporales.keys()) {
-            val array = temporales.getJSONArray(clave)
+        for ((clave, array) in temporales.keys().asSequence().map { it to temporales.getJSONArray(it) } +
+            fijas.keys().asSequence().map { it to fijas.getJSONArray(it) }) {
             for (i in 0 until array.length()) {
                 val lectura = array.getJSONObject(i)
                 val libro = lectura.getInt("b")

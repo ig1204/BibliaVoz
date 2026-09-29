@@ -63,17 +63,26 @@ private val DarkColors = darkColorScheme(
     onErrorContainer = Color(0xFFFFDAD5),
 )
 
+/**
+ * Si la app se ve en oscuro. La barra de estado usa lo mismo para que sus
+ * iconos contrasten con el fondo de la app y no con el modo del sistema.
+ *
+ * @param themeMode 0 = seguir al sistema, 1 = claro, 2 = oscuro.
+ */
+@Composable
+fun temaOscuro(themeMode: Int): Boolean = when (themeMode) {
+    1 -> false
+    2 -> true
+    else -> isSystemInDarkTheme()
+}
+
 /** @param themeMode 0 = seguir al sistema, 1 = claro, 2 = oscuro. */
 @Composable
 fun BibliaVozTheme(
     themeMode: Int = 0,
     content: @Composable () -> Unit,
 ) {
-    val dark = when (themeMode) {
-        1 -> false
-        2 -> true
-        else -> isSystemInDarkTheme()
-    }
+    val dark = temaOscuro(themeMode)
     MaterialTheme(
         colorScheme = if (dark) DarkColors else LightColors,
         content = content,

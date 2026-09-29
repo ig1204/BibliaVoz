@@ -26,6 +26,7 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -75,13 +76,20 @@ fun LecturasScreen(
 
     LaunchedEffect(fecha) { viewModel.cargarLecturas(fecha) }
 
-    // Al entrar en la pantalla se dejan preparadas las lecturas del día para
-    // que el servicio pueda leerlas sin volver a resolverlas.
-    LaunchedEffect(estado.lecturas, estado.descripcion) {
-        if (estado.lecturas.isNotEmpty()) {
-            ColaLecturas.preparar(estado.descripcion, estado.lecturas)
-        }
-    }
+    // Las lecturas se entregan al servicio (ColaLecturas.preparar) solo al
+    // pulsar ▶: prepararlas al cambiar de día haría que la notificación de lo
+    // que suena mostrara el nombre del otro día.
+
+    // Lo que tiene cargado el servicio es la misa de este mismo día: solo
+    // entonces se marca la tarjeta que suena y se ofrece pausar o seguir.
+    val esteDia = player.enLecturas && !estado.cargando &&
+        estado.lecturas.isNotEmpty() && player.lecturasTitulo == estado.descripcion
+    val sonandoEsteDia = esteDia && player.isPlaying
+    val pausadoEsteDia = esteDia && !player.isPlaying
+    // En un día sin lecturas no hay otra cosa que hacer con el botón: si suena
+    // la misa de otro día, al menos se puede pausar desde aquí.
+    val soloPausar = player.enLecturas && player.isPlaying &&
+        !estado.cargando && estado.lecturas.isEmpty()
 
     Scaffold(
         topBar = {
@@ -95,7 +103,7 @@ fun LecturasScreen(
             )
         },
         bottomBar = {
-            if (estado.lecturas.isNotEmpty()) {
+            if (estado.lecturas.isNotEmpty() || soloPausar) {
                 Surface(tonalElevation = 3.dp, color = MaterialTheme.colorScheme.surfaceContainer) {
                     Column(Modifier.fillMaxWidth().navigationBarsPadding()) {
                         if (player.enLecturas) AvisosVozIa(player)
@@ -106,27 +114,37 @@ fun LecturasScreen(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(12.dp),
                         ) {
+                            val pausar = sonandoEsteDia || soloPausar
                             Button(
                                 onClick = {
                                     ensureNotificationPermission()
-                                    if (player.isPlaying && player.enLecturas) {
-                                        PlaybackService.pause(context)
-                                    } else {
-                                        ColaLecturas.preparar(estado.descripcion, estado.lecturas)
-                                        PlaybackService.leerLecturas(context, 0)
+                                    when {
+                                        pausar -> PlaybackService.pause(context)
+                                        // Sigue donde se pausó, en la misma palabra. Si el
+                                        // servicio ya se apagó, no queda nada que reanudar.
+                                        pausadoEsteDia && PlaybackService.running ->
+                                            PlaybackService.play(context)
+                                        else -> {
+                                            ColaLecturas.preparar(estado.descripcion, estado.lecturas)
+                                            PlaybackService.leerLecturas(context, 0)
+                                        }
                                     }
                                 },
+                                // Mientras llega el día nuevo, lo de pantalla es aún el anterior.
+                                enabled = pausar || !estado.cargando,
                                 modifier = Modifier.weight(1f),
                             ) {
                                 Icon(
-                                    if (player.isPlaying && player.enLecturas) Icons.Rounded.Pause
-                                    else Icons.Rounded.PlayArrow,
+                                    if (pausar) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
                                     contentDescription = null,
                                 )
                                 Spacer(Modifier.size(8.dp))
                                 Text(
-                                    if (player.isPlaying && player.enLecturas) "Pausar"
-                                    else "Escuchar la misa completa"
+                                    when {
+                                        pausar -> "Pausar"
+                                        pausadoEsteDia -> "Seguir escuchando"
+                                        else -> "Escuchar la misa completa"
+                                    }
                                 )
                             }
                         }
@@ -157,16 +175,27 @@ fun LecturasScreen(
                     contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
                 ) {
                     itemsIndexed(estado.lecturas) { index, lectura ->
+                        // El botón de cada tarjeta hace lo mismo que el de abajo, pero
+                        // para su lectura: ⏸ mientras suena, ▶ para seguir donde se pausó.
+                        val sonando = sonandoEsteDia && player.lecturaIndex == index
+                        val enPausa = pausadoEsteDia && player.lecturaIndex == index
                         TarjetaLectura(
                             titulo = lectura.titulo,
                             cita = lectura.cita,
                             texto = lectura.versiculos,
                             fontScale = settings.fontScale,
-                            sonando = player.enLecturas && player.isPlaying && player.lecturaIndex == index,
+                            sonando = sonando,
+                            actual = sonando || enPausa,
                             onEscuchar = {
                                 ensureNotificationPermission()
-                                ColaLecturas.preparar(estado.descripcion, estado.lecturas)
-                                PlaybackService.leerLecturas(context, index)
+                                when {
+                                    sonando -> PlaybackService.pause(context)
+                                    enPausa && PlaybackService.running -> PlaybackService.play(context)
+                                    else -> {
+                                        ColaLecturas.preparar(estado.descripcion, estado.lecturas)
+                                        PlaybackService.leerLecturas(context, index)
+                                    }
+                                }
                             },
                         )
                     }
@@ -225,13 +254,16 @@ private fun TarjetaLectura(
     cita: String,
     texto: List<String>,
     fontScale: Float,
+    /** Suena ahora esta lectura. */
     sonando: Boolean,
+    /** Es la lectura en curso, suene o esté en pausa. */
+    actual: Boolean,
     onEscuchar: () -> Unit,
 ) {
     Card(
         modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
         colors = CardDefaults.cardColors(
-            containerColor = if (sonando) {
+            containerColor = if (actual) {
                 MaterialTheme.colorScheme.primaryContainer
             } else {
                 MaterialTheme.colorScheme.surfaceContainer
@@ -253,8 +285,17 @@ private fun TarjetaLectura(
                         fontWeight = FontWeight.SemiBold,
                     )
                 }
-                FilledTonalIconButton(onClick = onEscuchar) {
-                    Icon(Icons.Rounded.PlayArrow, contentDescription = "Escuchar esta lectura")
+                if (sonando) {
+                    FilledIconButton(onClick = onEscuchar) {
+                        Icon(Icons.Rounded.Pause, contentDescription = "Pausar esta lectura")
+                    }
+                } else {
+                    FilledTonalIconButton(onClick = onEscuchar) {
+                        Icon(
+                            Icons.Rounded.PlayArrow,
+                            contentDescription = if (actual) "Seguir con esta lectura" else "Escuchar esta lectura",
+                        )
+                    }
                 }
             }
 
@@ -281,9 +322,7 @@ private fun TarjetaLectura(
 private fun SinLecturas() {
     Box(Modifier.fillMaxSize().padding(32.dp), contentAlignment = Alignment.Center) {
         Text(
-            text = "No hay lecturas guardadas para este día.\n\n" +
-                "La tabla cubre el ciclo litúrgico completo, pero algunas " +
-                "celebraciones del santoral pueden faltar.",
+            text = "No hay lecturas guardadas para este día.",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )

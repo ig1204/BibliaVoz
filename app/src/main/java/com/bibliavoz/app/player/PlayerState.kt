@@ -36,12 +36,28 @@ data class PlayerState(
     val lecturaIndex: Int = 0,
     /** Título de la lectura que suena. */
     val lecturaTitulo: String = "",
+    /**
+     * Título del día cuyas lecturas lee el servicio ([com.bibliavoz.app.liturgia.ColaLecturas.titulo]
+     * al empezar); vacío fuera de las lecturas. Sirve para saber si lo que suena
+     * es el día que muestra la pantalla.
+     */
+    val lecturasTitulo: String = "",
     /** Lo que suena es la voz IA grabada, no la del teléfono. */
     val vozIa: Boolean = false,
     /** Aviso de la voz IA para el usuario (un archivo dañado…); `null` si no hay. */
     val avisoVoz: String? = null,
 ) {
     val hasSleepTimer: Boolean get() = sleepTimerEndsAt > 0L
+
+    /** El mismo estado sin misa en curso ni voz sonando: lo que queda al apagarse el servicio. */
+    fun sinMisa(): PlayerState = copy(
+        enLecturas = false,
+        lecturaIndex = 0,
+        lecturaTitulo = "",
+        lecturasTitulo = "",
+        vozIa = false,
+        avisoVoz = null,
+    )
 }
 
 /**
