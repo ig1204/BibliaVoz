@@ -11,6 +11,8 @@ como un audiolibro.
 - Icono «Santa Biblia» generado con Meta AI.
 - La documentación completa, en español, está en **[LEEME.md](LEEME.md)**: cómo se usa,
   cómo se genera la voz IA, cómo se compila y cómo está hecho.
+- Para descargar los audios se crea un enlace de Google Drive para que lo puedan descargar
+  sin tener que generarlos por su cuenta
 
 ## Versiones
 
