@@ -1,6 +1,7 @@
 package com.bibliavoz.generador
 
 import com.bibliavoz.app.voz.Director
+import com.bibliavoz.app.voz.TextosIa
 import com.bibliavoz.app.voz.VocesIa
 import org.json.JSONArray
 import org.json.JSONObject
@@ -24,7 +25,7 @@ import kotlin.system.exitProcess
  * Genera el audio de la voz IA de Biblia en Voz, una sola vez y en la PC.
  *
  * Hace lo que sería pegar cada tramo de texto en Fish Audio y descargar su
- * audio, pero sin intervención: unos nueve mil tramos solo de la Reina-Valera.
+ * audio, pero sin intervención: unos siete mil tramos de toda la Biblia.
  * Deja en la carpeta de salida un archivo por tramo y un `manifest.json` que la
  * app lee para saber qué tiene. Se puede cortar y volver a lanzar: lo ya
  * generado no se repite.
@@ -35,8 +36,11 @@ fun main(args: Array<String>) {
     val assets = File(op.proyecto, "app/src/main/assets")
     val extension = if (op.formato == "opus") "opus" else "mp3"
 
-    val biblia = Biblia.cargar(File(assets, "bible"))
+    // Biblia unificada: la Santa Biblia Libre (bible-cat, 73 libros y «el Señor»)
+    // sirve tanto para la lectura por capítulos como para las lecturas de la misa.
+    // Ya no se usa la Reina-Valera 1909.
     val catolica = Biblia.cargar(File(assets, "bible-cat"))
+    val biblia = catolica
     val leccionario = Leccionario(File(assets, "liturgia/leccionario.json"))
 
     // El plan completo siempre: el manifiesto recoge todo lo que ya esté hecho,
@@ -118,7 +122,7 @@ private fun contar(titulo: String, unidades: List<Unidad>) {
 
 /**
  * Qué generar esta vez. Por defecto: las lecturas de la misa de las próximas
- * dos semanas, luego la Reina-Valera entera en orden y luego el resto de lecturas.
+ * dos semanas, luego la Biblia entera en orden y luego el resto de lecturas.
  */
 private fun seleccionar(
     solo: String,
@@ -192,7 +196,7 @@ class Opciones(
     companion object {
         fun de(args: Array<String>): Opciones {
             var proyecto = File(".").absoluteFile
-            var salida = File("E:/PG/BibliaVoz-IA/audio")
+            var salida = File("E:/PG/BibliaVoz-IA/audio-mx")
             var clave = "E:/PG/BibliaVoz-IA/clave-fish.txt"
             var solo = ""
             var hilos = 3
@@ -279,6 +283,7 @@ class Manifiesto(private val salida: File, private val unidades: List<Unidad>, p
         }
         val raiz = JSONObject()
             .put("version", 1)
+            .put("textos", TextosIa.ID)
             .put("voz", VocesIa.VOZ_ID)
             .put("vozNombre", VocesIa.VOZ_NOMBRE)
             .put("modelo", VocesIa.MODELO)

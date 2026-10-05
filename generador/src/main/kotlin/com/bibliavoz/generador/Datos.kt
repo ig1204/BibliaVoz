@@ -76,7 +76,7 @@ class Leccionario(archivo: File) {
         val deLaFiesta = Precedencia.claveLecturasFija(fijas, dia)
             ?.let { fijas.optJSONArray(it) }
             ?.let { parse(it) } ?: emptyList()
-        return Precedencia.combinar(delTiempo, deLaFiesta, dia.fija?.grado) { it.titulo }
+        return Precedencia.combinar(dia, delTiempo, deLaFiesta) { it.titulo }
     }
 
     /** Todas las lecturas distintas del leccionario, en un orden estable. */

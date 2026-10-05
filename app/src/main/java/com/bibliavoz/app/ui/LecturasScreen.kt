@@ -337,11 +337,12 @@ private fun AvisoLeccionario() {
         modifier = Modifier.fillMaxWidth().padding(vertical = 16.dp),
     ) {
         Text(
-            text = "Basado en el leccionario romano general. Los domingos y las " +
-                "ferias coinciden con México, pero algunas memorias del santoral " +
-                "propio mexicano pueden variar.\n\n" +
-                "El texto es la «Santa Biblia Libre», de dominio público. No es la " +
-                "traducción que se proclama en misa, que tiene derechos reservados.",
+            text = "Basado en el leccionario de México (CEM): el calendario, las fiestas " +
+                "propias y la numeración de los salmos siguen el misal mexicano. No incluye " +
+                "las fiestas patronales ni las diocesanas.\n\n" +
+                "El texto es la «Santa Biblia Libre» (eBible.org), de dominio público, con " +
+                "«Yahvé» leído «el Señor». No es la traducción que se proclama en misa, que " +
+                "tiene derechos reservados.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(14.dp),

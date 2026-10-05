@@ -63,7 +63,6 @@ fun ReaderScreen(
     val settings by viewModel.settings.collectAsStateWithLifecycle()
     val chapter by viewModel.chapter.collectAsStateWithLifecycle()
     var showSettings by remember { mutableStateOf(false) }
-    var showVoicePicker by remember { mutableStateOf(false) }
     var showVozIa by remember { mutableStateOf(false) }
 
     // Posición que se está mostrando. Si se vuelve al capítulo donde se quedó
@@ -172,12 +171,8 @@ fun ReaderScreen(
         SettingsSheet(
             viewModel = viewModel,
             onDismiss = { showSettings = false },
-            onOpenVoicePicker = { showSettings = false; showVoicePicker = true },
             onOpenVozIa = { showSettings = false; showVozIa = true },
         )
-    }
-    if (showVoicePicker) {
-        VoicePickerSheet(viewModel = viewModel, onDismiss = { showVoicePicker = false })
     }
     if (showVozIa) {
         VozIaSheet(viewModel = viewModel, onDismiss = { showVozIa = false })

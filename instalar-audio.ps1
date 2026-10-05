@@ -17,7 +17,7 @@ if ([Console]::IsOutputRedirected) {
 }
 
 $adb = 'E:\PG\.toolchain\sdk\platform-tools\adb.exe'
-$origen = 'E:\PG\BibliaVoz-IA\audio'
+$origen = 'E:\PG\BibliaVoz-IA\audio-mx'
 $paquete = 'com.bibliavoz.app'
 $destino = "/sdcard/Android/data/$paquete/files/voz-ia"
 $lote = 200          # archivos por cada adb push (la línea de órdenes tiene límite)

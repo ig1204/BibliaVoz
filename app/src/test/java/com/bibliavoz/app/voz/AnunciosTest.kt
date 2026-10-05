@@ -81,9 +81,19 @@ class AnunciosTest {
 
     @Test
     fun `los salmos se nombran y los canticos no se anuncian como lectura`() {
-        // El salmo se lee completo: se nombra, sin versículos.
-        assertEquals("Salmo responsorial. Salmo ochenta y cinco.", Anuncios.lectura("Salmo responsorial", "Salmos", "Salmo 85, 9-14"))
-        assertEquals("Salmo responsorial. Salmo ciento diecisiete.", Anuncios.lectura("Salmo responsorial", "Salmos", "Salmo 117, 1-2"))
+        // El salmo se anuncia con su número (del misal) y sus versículos citados.
+        assertEquals(
+            "Salmo responsorial. Salmo ochenta y cinco, versículos del nueve al catorce.",
+            Anuncios.lectura("Salmo responsorial", "Salmos", "Salmo 85, 9-14"),
+        )
+        assertEquals(
+            "Salmo responsorial. Salmo ciento diecisiete, versículos del uno al dos.",
+            Anuncios.lectura("Salmo responsorial", "Salmos", "Salmo 117, 1-2"),
+        )
+        assertEquals(
+            "Salmo responsorial. Salmo setenta y nueve, versículos nueve, del doce al dieciséis y del diecinueve al veinte.",
+            Anuncios.lectura("Salmo responsorial", "Salmos", "Salmo 79, 9. 12-16. 19-20"),
+        )
         // Antes decía «Lectura del santo Evangelio según san Lucas» antes del
         // Magníficat, y otra vez lo mismo en el evangelio.
         assertEquals(

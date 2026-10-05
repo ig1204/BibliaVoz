@@ -35,6 +35,18 @@ $CORRECCIONES = @{
     ) + @(8..168 | Where-Object { $_ % 8 -eq 0 } | ForEach-Object { , @(119, $_, { param($t) $t -creplace '\s+\p{Lu}{2,}(?:\s+Y\s+\p{Lu}{2,})?$', '' }) })
 }
 
+# Versiculos que la SBL (que es un borrador) deja VACIOS y hemos decidido
+# completar con la Reina-Valera 1909 (dominio publico), adaptada a "el Señor" y
+# a ortografia actual. A diferencia de las correcciones de arriba, esto cambia
+# cuantos versiculos tiene el capitulo, por eso va en su propio paso.
+#  - 1 Samuel 11:15 (libro 9): la SBL lo deja en blanco.
+# libro -> lista de @(capitulo, versiculo, texto)
+$RELLENOS = @{
+    9 = @(
+        , @(11, 15, 'Y todo el pueblo fue a Gilgal, y allí proclamaron rey a Saúl delante del Señor. También ofrecieron allí sacrificios de paz delante del Señor, y Saúl y todos los israelitas se alegraron mucho.')
+    )
+}
+
 $cambios = 0
 foreach ($libro in $CORRECCIONES.Keys) {
     $archivo = Join-Path $dir "$libro.json"
@@ -58,3 +70,36 @@ foreach ($libro in $CORRECCIONES.Keys) {
     [System.IO.File]::WriteAllText($archivo, $raw, $utf8)
 }
 Write-Output "Versiculos corregidos: $cambios"
+
+# Rellenar los versiculos vacios que hemos decidido completar. Puede cambiar el
+# numero de versiculos del capitulo, asi que no comprueba la estructura como las
+# correcciones de arriba. Es idempotente: si ya esta puesto, no toca nada.
+$rellenados = 0
+foreach ($libro in $RELLENOS.Keys) {
+    $archivo = Join-Path $dir "$libro.json"
+    $raw = [System.IO.File]::ReadAllText($archivo, $utf8)
+    $datos = $raw | ConvertFrom-Json
+    $modificado = $false
+    foreach ($r in $RELLENOS[$libro]) {
+        $cap = $r[0]; $ver = $r[1]; $texto = $r[2]
+        $capArr = @($datos.chapters[$cap - 1])
+        $viejoN = $capArr.Count
+        $actual = if ($ver -le $viejoN) { [string]$capArr[$ver - 1] } else { '' }
+        if ($actual -eq $texto) { continue }                              # ya puesto
+        if ($actual -ne '') { throw "$libro $cap`:$ver ya trae otro texto, no se rellena" }
+        $nuevoN = [Math]::Max($viejoN, $ver)
+        $viejoCap = '[' + (((1..$viejoN) | ForEach-Object { '"' + (Esc ([string]$capArr[$_ - 1])) + '"' }) -join ',') + ']'
+        $nuevoCap = '[' + (((1..$nuevoN) | ForEach-Object {
+            $val = if ($_ -eq $ver) { $texto } elseif ($_ -le $viejoN) { [string]$capArr[$_ - 1] } else { '' }
+            '"' + (Esc $val) + '"'
+        }) -join ',') + ']'
+        $veces = ([regex]::Matches($raw, [regex]::Escape($viejoCap))).Count
+        if ($veces -ne 1) { throw "El capitulo $libro $cap aparece $veces veces en el archivo: no se rellena" }
+        $raw = $raw.Replace($viejoCap, $nuevoCap)
+        $modificado = $true
+        Write-Output "  RELLENO $($datos.abbr) $cap`:$ver  ->  $texto"
+        $rellenados++
+    }
+    if ($modificado) { [System.IO.File]::WriteAllText($archivo, $raw, $utf8) }
+}
+Write-Output "Versiculos rellenados: $rellenados"

@@ -85,16 +85,21 @@ object CalendarioLiturgico {
     /** Clave del Inmaculado Corazón de la Virgen María. */
     const val CORAZON_DE_MARIA = "CORAZON-MARIA"
 
+    /** Clave de Jesucristo, Sumo y Eterno Sacerdote (fiesta propia de México). */
+    const val SUMO_SACERDOTE = "SUMO-SACERDOTE"
+
     /**
-     * Memorias obligatorias que dependen de la Pascua y no tienen fecha fija:
-     * Santa María, Madre de la Iglesia (lunes después de Pentecostés) y el
-     * Inmaculado Corazón de María (sábado después del Sagrado Corazón). Devuelve
-     * su clave en el leccionario, o `null` si ese día no toca ninguna.
+     * Celebraciones que dependen de la Pascua y no tienen fecha fija: Santa María,
+     * Madre de la Iglesia (lunes después de Pentecostés), Jesucristo Sumo y Eterno
+     * Sacerdote (jueves después de Pentecostés, fiesta en México) y el Inmaculado
+     * Corazón de María (sábado después del Sagrado Corazón). Devuelve su clave en
+     * el leccionario, o `null` si ese día no toca ninguna.
      */
     fun memoriaMovil(date: LocalDate): String? {
         val p = pascua(date.year)
         return when (date) {
             p.plusDays(50) -> MADRE_DE_LA_IGLESIA
+            p.plusDays(53) -> SUMO_SACERDOTE
             p.plusDays(69) -> CORAZON_DE_MARIA
             else -> null
         }
@@ -169,7 +174,9 @@ object CalendarioLiturgico {
 
         // Solemnidades móviles que caen ya en Tiempo Ordinario y desplazan a la feria.
         if (date == pascua.plusDays(56)) return "TRINIDAD$sufijo"
-        if (date == pascua.plusDays(63)) return "CORPUS$sufijo"
+        // En México el Corpus se celebra el jueves después de la Trinidad (no el
+        // domingo siguiente, que es uso de EE. UU.); tiene lecturas de ciclo A/B/C.
+        if (date == pascua.plusDays(60)) return "CORPUS-$ciclo"
         // El Sagrado Corazón tiene ciclo propio A/B/C aunque caiga en viernes.
         if (date == pascua.plusDays(68)) return "SAGCORAZON-$ciclo"
 

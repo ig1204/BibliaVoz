@@ -2,18 +2,45 @@
 
 App de Android que **lee la Biblia en voz alta**, sin conexión a internet.
 
-- **Dos textos**, ambos de dominio público y empaquetados dentro de la app:
-  - **Reina-Valera 1909** — 66 libros, 1 189 capítulos, 31 084 versículos. Es la que se
-    lee al elegir un libro y un capítulo.
-  - **Santa Biblia Libre** — 73 libros (canon católico, con los deuterocanónicos),
-    1 328 capítulos, 35 423 versículos. Se usa para las lecturas de la misa.
-- **Lecturas de la misa** — las lecturas de cada día en el orden de la Iglesia:
+- **El texto**, de dominio público y empaquetado dentro de la app:
+  - **Santa Biblia Libre** (eBible.org, «spabll») — 73 libros (canon católico, con los
+    deuterocanónicos), una sola Biblia para leer por capítulos y para las lecturas de la
+    misa. Para México se adapta: el nombre divino «Yahvé» se lee «el Señor».
+- **Lecturas de la misa** — las lecturas de cada día según el calendario de México (CEM):
   primera lectura, salmo responsorial, segunda lectura y Evangelio.
-- **Voz IA (desde la 2.1):** la voz humana «Hilary narrador» de Fish Audio, que lee como
-  un audiolibro, con emociones donde el texto las pide. Desde la 2.2 **va dentro de la
-  app**: se genera una sola vez en la PC y viaja en el APK, así que cualquier teléfono la
-  tiene al instalarla. La app no tiene permiso de internet.
-- **Voz del teléfono:** el motor de texto a voz de Android, para lo que no tenga voz IA.
+- **Voz IA:** la voz humana «Hilary narrador» de Fish Audio, que lee como un audiolibro,
+  con emociones donde el texto las pide. **Va dentro de la app**: se genera una sola vez en
+  la PC y viaja en el APK, así que cualquier teléfono la tiene al instalarla. La app no
+  tiene permiso de internet. Es la única voz; si un pasaje no tuviera audio, se avisa.
+
+---
+
+## Novedades de la 3.0 (México)
+
+- **Una sola Biblia, la Santa Biblia Libre**, para los capítulos y para la misa. El nombre
+  divino «Yahvé» se lee «el Señor», como en el leccionario, y se quitó la marca musical
+  «Selah» de los Salmos para que la voz no la pronuncie.
+- **Lecturas de la misa según el calendario de México (CEM):** el Corpus Christi el jueves,
+  Nuestra Señora de Guadalupe el 12 de diciembre con sus lecturas propias, la Santa Cruz y
+  Felipe y Santiago en mayo, Jesucristo Sumo y Eterno Sacerdote, San Felipe de Jesús y Santa
+  Rosa de Lima, y los salmos con la numeración del misal mexicano (Vulgata).
+- **Solo la voz IA.** Se quitó la voz del teléfono: toda la Biblia y todas las lecturas van
+  grabadas en el APK. Si un pasaje no tuviera audio, se avisa y se pausa, en vez de leerlo
+  con otra voz.
+- **El salmo responsorial se anuncia y se lee como en misa:** con su número del misal
+  mexicano y sus versículos («Salmo setenta y nueve, versículos nueve, del doce al
+  dieciséis…»), y solo esos versículos, no el salmo entero.
+- **Salmos sin títulos:** ya no se leen inscripciones como «Para el director musical…», y
+  donde se habla a Dios se dice «Señor, …» (vocativo) y no «El Señor, …».
+- **Texto completado:** 1 Samuel 11,15, que la Santa Biblia Libre trae en blanco, se
+  completa a partir de la Reina-Valera 1909.
+- **Guadalupe** se celebra el 12 de diciembre aunque caiga en domingo de Adviento (con la
+  2ª lectura de ese domingo, como dispone la CEM), y entre semana las fiestas del Señor
+  llevan 1ª lectura, salmo y Evangelio.
+- **Toda la voz IA se regrabó** con el texto nuevo (7 234 tramos).
+- **Final de cada lectura más limpio:** se corrigió un corte de las últimas palabras que
+  aparecía en los tramos largos (lo causaba la reproducción de Android, no la grabación).
+- **Icono nuevo «Santa Biblia»**, con Jesús, la paloma y una corona de laurel.
 
 ---
 
@@ -36,7 +63,8 @@ Se instala encima de la 2.1 sin perder la posición ni los ajustes.
   capítulo y los versículos: «Primera lectura del libro del profeta Daniel, capítulo
   siete, versículos del nueve al catorce», «Lectura del santo Evangelio según san
   Marcos, capítulo…». El salmo se nombra («Salmo responsorial. Salmo ochenta y cinco»)
-  porque se lee completo. Lo dicen igual la voz IA y la voz del teléfono.
+  porque se lee completo. Lo dicen igual la voz IA y la voz del teléfono. (Desde la 3.0
+  se leen y se anuncian solo los versículos citados, y ya no hay voz del teléfono.)
 - **Cada lectura con su botón:** en la pantalla de la misa, el botón de la lectura que
   suena muestra ⏸ (pausar) y, en pausa, ▶ para seguir donde iba, igual que el de abajo.
 - **Lecturas de la misa corregidas:** fiestas que se colaban en domingos, Adviento o
@@ -59,14 +87,14 @@ Se instala encima de la 2.1 sin perder la posición ni los ajustes.
 
 ## Instalar el APK en el teléfono
 
-El archivo es **`E:\PG\BibliaEnVoz-2.2.apk`** (unos 2,8 GB, porque lleva dentro toda la
+El archivo es **`E:\PG\BibliaEnVoz-3.0.apk`** (unos 3,2 GB, porque lleva dentro toda la
 voz IA). Es el mismo para cualquier teléfono. Se instala encima de cualquier versión
 anterior sin perder la posición ni los ajustes. (La 2.0 pedía la voz por internet: quedó
 obsoleta.)
 
-**Espacio:** mientras se instala, el teléfono necesita unos **6 GB libres** (el APK que
+**Espacio:** mientras se instala, el teléfono necesita unos **7 GB libres** (el APK que
 copias más la app instalada); después puedes borrar el APK de Descargas y la app ocupa
-unos 2,8 GB.
+unos 3,2 GB.
 
 1. Pasa el archivo al teléfono: por **cable USB** (conecta el teléfono, elige
    «Transferencia de archivos» y copia el APK a la carpeta *Download*), por Google Drive
@@ -83,19 +111,6 @@ con Android 17; si en un teléfono muy antiguo la instalación fallara, dímelo.
 
 > **La voz IA va dentro del APK.** No hay que copiar nada más: al instalarlo, Ajustes →
 > Voz IA dice «Incluida en la app».
-
-### Si no se oye nada
-
-La voz del teléfono usa el motor de texto a voz de Android. Si tu teléfono no tiene voz
-en español instalada, la propia app te lo dirá y te ofrecerá un botón **«Arreglar»** que
-abre la pantalla correcta de Android. También puedes ir a mano a:
-
-> Ajustes de Android → Accesibilidad → Texto a voz
-> (en algunos teléfonos: Ajustes → Administración general → Texto a voz)
-
-Ahí elige el motor **Google Text-to-Speech**, idioma **Español**, y descarga la voz.
-Si no tienes el motor de Google, instálalo desde Play Store (*Speech Recognition
-and Synthesis from Google*).
 
 ### Si se corta con la pantalla apagada (Xiaomi, Samsung, Huawei, Oppo, Realme)
 
@@ -140,9 +155,7 @@ Los controles aparecen en la barra de notificaciones y en la pantalla de bloqueo
 botones de los audífonos también funcionan. Si entra una llamada, se pausa sola y sigue
 al colgar.
 
-**Ajustes** (icono de engrane): Voz IA, voz del teléfono, velocidad, tono de voz (solo
-cambia la voz del teléfono; la voz IA suena siempre con su tono), anunciar el capítulo,
-leer el número de versículo (solo la voz del teléfono), continuar solo al capítulo
+**Ajustes** (icono de engrane): Voz IA, velocidad, continuar solo al capítulo
 siguiente, tamaño de letra, mantener la pantalla encendida y tema Sistema / Claro /
 Oscuro.
 
@@ -150,9 +163,8 @@ La app recuerda siempre dónde te quedaste.
 
 ### Voz IA (grabada, sin internet)
 
-**Ajustes → Voz IA.** Un interruptor para usarla y lo que hay en el teléfono («Incluida
-en la app»). Donde hay audio de voz IA, suena esa voz; lo que no lo tuviera lo lee la voz
-del teléfono, sin cortes.
+**Ajustes → Voz IA.** Muestra lo que hay en el teléfono («Incluida en la app»). Donde
+hay audio de voz IA, suena esa voz; si un pasaje no lo tuviera, se avisa y se pausa.
 
 La voz es **Hilary narrador** (de la biblioteca de fish.audio), elegida escuchando cuatro
 narradores masculinos en español latino leyendo Juan 11. El audio se hace **una sola vez,
@@ -160,17 +172,19 @@ en la PC**, y luego se mete en el APK al compilar:
 
 1. **Generar** (PC, necesita internet y la clave de Fish Audio en
    `E:\PG\BibliaVoz-IA\clave-fish.txt`): doble clic en **`generar-audio.bat`**. Genera
-   las lecturas de la misa de las próximas dos semanas, luego la Reina-Valera entera y
-   luego el resto de lecturas: **unos 6 200 tramos, unas 100 horas de audio, ~2,8 GB en
-   MP3 de 64 kbps**; la primera vez tardó unas 16 horas. Se puede cerrar y volver a
+   las lecturas de la misa de las próximas dos semanas, luego la Biblia entera y
+   luego el resto de lecturas: **unos 7 234 tramos, unas 118 horas de audio, ~3,2 GB en
+   MP3 de 64 kbps**; la regrabación completa tardó unas 18-20 horas. Se puede cerrar y volver a
    lanzar: sigue donde se quedó. Si el texto de algo cambia (como las lecturas corregidas
    en la 2.2), solo se vuelve a grabar eso, y lo que ya no se usa se borra.
    Mientras trabaja pide a Windows que no suspenda la PC. Usa el modelo gratuito
    *S2.1 Pro Free* (Fish Audio anunció que lo ofrece así hasta el 30 de noviembre de 2026).
    Desde la consola: `generar-audio.ps1 --solo "Juan 11"` genera solo eso, `--contar`
    dice cuánto falta, `--limpiar` borra audio que ya no corresponde a nada.
-2. **Meterlo en la app:** `compilar.ps1 assembleRelease` toma todo lo que hay en
-   `E:\PG\BibliaVoz-IA\audio` y lo pone dentro del APK (ver [Volver a compilar](#volver-a-compilar)).
+2. **Meterlo en la app:** `compilar.ps1 assembleRelease` toma el audio de
+   `E:\PG\BibliaVoz-IA\audio-mx` (la carpeta de la 3.0) y lo pone dentro del APK (ver
+   [Volver a compilar](#volver-a-compilar)). `generar-audio.bat` ya no borra nada: el
+   audio viejo solo se limpia a mano, con todo regrabado (`generar-audio.ps1 --limpiar`).
 3. **Opcional, copiar por cable** (teléfono conectado por USB con la depuración USB
    activada): doble clic en **`instalar-audio.bat`**. Sirve para estrenar audio nuevo en
    un teléfono sin reinstalar la app. Copia solo lo nuevo a
@@ -190,7 +204,7 @@ archivos en la carpeta `Android/data` de otra app.
 
 1. **Instala la app** en ese teléfono (ver [Instalar el APK](#instalar-el-apk-en-el-teléfono))
    y **ábrela una vez**.
-2. **Comprueba el espacio:** hacen falta unos **3 GB libres** (Ajustes → Almacenamiento).
+2. **Comprueba el espacio:** hacen falta unos **3,5 GB libres** (Ajustes → Almacenamiento).
 3. **Activa las Opciones de desarrollador:** Ajustes → Acerca del teléfono → toca **7 veces
    seguidas** «**Número de compilación**» hasta que diga que ya eres desarrollador (puede
    pedir el PIN del teléfono). En Samsung está en Acerca del teléfono → Información de
@@ -236,9 +250,9 @@ el propio texto las pide. Es conservador a propósito: unas 7 por cada 100 vers�
 | fue movido a misericordia, se compadeció | con ternura | `[tender tone]` |
 | gimió, suspiró, «¡Ay de mí!» | con un suspiro | `[sigh]` |
 | lo reprendió | firme | `[firm tone]` |
-| oró, se postró, clamó a Jehová | reverente | `[reverent tone]` |
+| oró, se postró, clamó al Señor | reverente | `[reverent tone]` |
 | una voz de los cielos que decía | con eco | `[echo]` |
-| dijo Dios, así dice Jehová | solemne | `[solemn tone]` |
+| dijo Dios, así dice el Señor | solemne | `[solemn tone]` |
 | (después del anuncio del capítulo) | pausa | `[pause]` |
 
 Las etiquetas van en inglés porque así las aprendió el modelo S2: son las de su
@@ -249,11 +263,11 @@ cortados en final de frase y sin colas sueltas. Cada tramo es una sola toma de l
 tramos largos hay pocas costuras y la lectura fluye como un audiolibro. Un
 `manifest.json` dice en qué punto de cada tramo empieza cada versículo (estimado por
 letras, con un margen de un segundo): así la pantalla resalta el que suena y se puede
-empezar desde cualquiera. La velocidad funciona igual que con la voz del teléfono; el
-tono de voz, no (solo cambia la voz del teléfono).
+empezar desde cualquiera.
 
-**Si falla.** Si un archivo está dañado o a medio copiar, la lectura **sigue con la voz del
-teléfono desde el mismo versículo** y un aviso lo explica. Vuelve a intentarse al pulsar ▶.
+**Si falla.** Si un archivo está dañado o a medio copiar, se reintenta una vez; si vuelve
+a fallar, se salta ese tramo con un aviso, y tras tres fallos seguidos la lectura se pausa.
+Vuelve a intentarse al pulsar ▶.
 
 **Privacidad.** El teléfono no se conecta a nada. Solo la PC, al generar, envía a
 api.fish.audio el texto bíblico de cada tramo con tu clave; después puedes borrar el
@@ -262,21 +276,10 @@ archivo de la clave y revocarla en fish.audio.
 **Licencia.** Built with Fish Audio. El audio se generó con el servicio de Fish Audio. El
 modelo S2 Pro descargado en `E:\PG\mf` está bajo la *Fish Audio Research License* (uso
 personal y no comercial) y no se usa: esta PC no tiene tarjeta gráfica para moverlo.
-
-### Elegir la voz del teléfono
-
-**Ajustes → Voz del teléfono.** Lista todas las voces en español que tiene el teléfono,
-ordenadas por calidad, con un botón ▶ en cada una para oírla antes de decidir.
-También deja cambiar de motor de voz y activar las voces «de red», que suenan
-mejor pero necesitan conexión.
-
-Android **no expone el sexo de una voz** por ninguna API, y los nombres técnicos
-(`es-es-x-eed-local`) no lo dicen de forma fiable. Por eso la app no etiqueta
-ninguna voz como masculina: se eligen escuchándolas.
-
-La app **lee tramos de varios versículos de corrido**, no versículo a versículo.
-Esa era la causa principal de que sonara entrecortado: los versículos parten las
-frases por la mitad, y parar en cada uno rompe la entonación del motor.
+Texto bíblico: Santa Biblia Libre (eBible.org, «spabll»), de dominio público, adaptada
+para México («el Señor», sin «Selah» ni títulos de salmos); 1 Samuel 11,15 es una
+adaptación libre de la Reina-Valera 1909, también de dominio público. Icono «Santa
+Biblia» generado con Meta AI.
 
 ### Lecturas de la misa
 
@@ -290,35 +293,47 @@ empaquetadas indexadas por *clave litúrgica*, no por fecha, por la misma razón
 los datos de origen terminen en 2027, **todos los días hasta 2032 tienen sus lecturas**
 (comprobado día por día en las pruebas). Las fiestas de fecha fija siguen el orden de
 precedencia de la Iglesia: un santo no desplaza a un domingo, a Adviento ni a la Semana
-Santa, y San José, la Anunciación o una solemnidad que caiga en uno de esos días pasan
-al siguiente día libre. La cabecera nombra la fiesta cuando se lee la de un santo. La
+Santa. Una solemnidad que caiga en uno de esos días pasa al siguiente día libre, con dos
+excepciones: San José en Semana Santa se adelanta al sábado anterior al Domingo de Ramos,
+y la Anunciación en Semana Santa o en la octava de Pascua pasa al lunes siguiente al
+II domingo de Pascua. La cabecera nombra la fiesta cuando se lee la de un santo. La
 Ascensión se celebra en domingo, como en México, y Guadalupe (12 de diciembre) es
 solemnidad. Si algún día no tuviera lecturas guardadas, la pantalla lo dice.
 
 **Limitaciones, dichas claramente:**
 
-- Está basado en el **leccionario romano general**. Los domingos y las ferias
-  coinciden con México; algunas memorias del **santoral propio mexicano**
-  (Guadalupe, Juan Diego) pueden variar.
+- Está basado en el **leccionario de México (CEM)**: los domingos, las ferias y las
+  fiestas propias de México (Guadalupe, San Felipe de Jesús, Santa Rosa de Lima,
+  Jesucristo Sumo y Eterno Sacerdote, la Santa Cruz el 3 de mayo…) siguen el calendario
+  mexicano.
 - El texto es la Santa Biblia Libre, **no la traducción que se proclama en misa**,
   que tiene derechos reservados y no se puede empaquetar. Su numeración de versículos
   no siempre coincide con la del leccionario, así que algún tramo puede empezar o
   terminar un versículo antes o después.
-- El **salmo responsorial**, si es corto (hasta 30 versículos), **se lee completo** en
-  vez del tramo citado. La numeración de versículos de los salmos no coincide entre el
-  leccionario y esta traducción (el desfase depende del título de cada salmo: 0, 1 o 2
-  versículos), así que leer un tramo citado sonaría desplazado sin que se notara. Leerlo
-  entero nunca miente. Los salmos largos (18, 22, 68, 69, 89…) se leen en su tramo, con
-  el desfase corregido.
+- **1 Samuel 11:15**, que la Santa Biblia Libre deja en blanco, se completa con un
+  versículo **adaptado de la Reina-Valera 1909** (dominio público), en redacción actual y
+  con «el Señor». Lo repone `tools/corregir-biblia-cat.ps1`, así que no se pierde si se
+  vuelve a generar la Biblia.
+- El **salmo responsorial** se lee por los **versículos citados** en el leccionario, no
+  el salmo entero. El leccionario nombra los salmos con la numeración litúrgica, que en
+  casi todo el salterio va un número por detrás de la de esta Biblia; además, en el
+  leccionario el título de muchos salmos cuenta como versículo 1 (o 1-2), y esta Biblia ya
+  no trae los títulos, así que la cuenta se corre 0, 1 o 2. La app convierte cada cita a la
+  numeración de esta Biblia para leer exactamente los versículos citados, y lo anuncia con
+  el número litúrgico, como se oye en misa.
 - Los libros cuya numeración difiere del leccionario llevan una corrección explícita,
   comprobada contra el texto real: Malaquías, Zacarías, Miqueas, Oseas, Éxodo, Isaías,
   Génesis, Samuel, Nahúm, Daniel, Joel, Jonás, 2 Corintios, Romanos 16 y otros. El
   Eclesiástico puede diferir en algún versículo.
-- En los años en que Guadalupe cae en domingo de Adviento (2027, 2032), la app la pasa
-  al lunes, como dice la norma general; en México a veces se celebra el mismo domingo.
-- Si se vuelve a generar la Santa Biblia Libre (`tools/convertir-catolica.ps1`), ese
-  script aplica al final `tools/corregir-biblia-cat.ps1`, que quita números y letras
-  hebreas sueltos que la voz leería en voz alta.
+- Si Guadalupe cae en domingo de Adviento (2027, 2032), se celebra ese mismo domingo,
+  con la 2ª lectura del domingo en lugar de la de Gálatas, como dispone la CEM.
+- Si se vuelve a generar la Santa Biblia Libre, hay que repetir **toda** la adaptación y
+  en este orden: `tools/convertir-catolica.ps1` (que al final aplica
+  `tools/corregir-biblia-cat.ps1`: quita números y letras hebreas sueltos y repone
+  1 S 11,15), luego `tools/convertir-senor.ps1 -Aplicar` («Yahvé»→«el Señor», sin
+  «Selah»), `tools/corregir-vocativos.ps1 -Aplicar` y `tools/quitar-titulos-salmos.ps1
+  -Aplicar` (con `tools/titulos-salmos.csv`). Después, subir `TextosIa.ID` y regrabar lo
+  que cambie.
 
 ---
 
@@ -334,22 +349,24 @@ powershell -ExecutionPolicy Bypass -File E:\PG\BibliaVoz\compilar.ps1 assembleRe
 ```
 
 El APK queda en `app\build\outputs\apk\release\app-release.apk`, y `compilar.ps1` lo copia
-además a **`E:\PG\BibliaEnVoz-<versión>.apk`** (hoy `BibliaEnVoz-2.2.apk`), con la versión
+además a **`E:\PG\BibliaEnVoz-<versión>.apk`** (hoy `BibliaEnVoz-3.0.apk`), con la versión
 que dice `versionName` en `app\build.gradle.kts`. Nunca pisa el APK de otra versión: si
 ya existe uno con ese nombre y es de otra compilación, avisa y no lo toca. Al sacar una
 versión nueva hay que subir `versionCode` y `versionName`.
 
-**La voz IA dentro del APK.** La versión *release* mete en `assets/voz-ia` todos los MP3
-y el `manifest.json` de `E:\PG\BibliaVoz-IA\audio` (con enlaces duros, sin ocupar otra
-copia en el disco), **sin comprimir**, para que la app los reproduzca directamente desde
-el APK. Por eso compilar tarda unos 10 minutos y el APK pesa unos 2,8 GB. Si falta el
-audio, la compilación se detiene y lo dice. Para una prueba rápida sin audio:
+**La voz IA dentro del APK.** La versión *release* mete en `assets/voz-ia` los MP3 que
+cita el `manifest.json` de `E:\PG\BibliaVoz-IA\audio-mx` (con enlaces duros, sin ocupar
+otra copia en el disco), **sin comprimir**, para que la app los reproduzca directamente
+desde el APK. Por eso compilar tarda unos 15-20 minutos y el APK pesa unos 3,2 GB. Si
+falta el audio, o si el manifiesto no lleva el sello del texto actual (`TextosIa.ID`, hoy
+`mx-sbl-4`), la compilación se detiene y lo dice. Para una prueba rápida sin audio:
 `compilar.ps1 assembleRelease -PsinVozIa` (ese APK no se copia a `E:\PG`). Otra carpeta
 de audio: `-PvozIaDir=<ruta>`.
 
 Las pruebas (`compilar.ps1 testReleaseUnitTest`) incluyen pasar el director de la voz IA
-por las dos Biblias completas: garantizan que al modelo nunca le llega una etiqueta
-inventada, una cifra, una palabra en mayúsculas ni la ortografía de 1909.
+por las dos Biblias completas (la de la app y la RV1909 que se conserva solo para las
+pruebas): garantizan que al modelo nunca le llega una etiqueta
+inventada, una cifra ni una palabra en mayúsculas.
 
 **Android Studio:** si abres la carpeta `E:\PG\BibliaVoz` y le das a **Run**, instala la
 variante *debug*, que es **otra app** (`com.bibliavoz.app.debug`) con el mismo nombre e
@@ -373,18 +390,20 @@ Kotlin + Jetpack Compose (Material 3), sin librerías de terceros más allá de 
 
 ```
 app/src/main/
-├── assets/bible/          index.json + 1.json … 66.json (Reina-Valera 1909)
-├── assets/bible-cat/      lo mismo para la Santa Biblia Libre (73 libros)
+├── assets/bible-cat/      index.json + 1.json … 73.json — la Santa Biblia Libre
+│                          (73 libros), la única Biblia que usa la app
+├── assets/bible/          la Reina-Valera 1909: solo la usan las pruebas
 │   (assets/voz-ia/)       la voz IA: no está aquí, la añade la compilación release
-│                          desde E:\PG\BibliaVoz-IA\audio (app/build.gradle.kts)
+│                          desde E:\PG\BibliaVoz-IA\audio-mx (app/build.gradle.kts)
 ├── java/com/bibliavoz/app/
 │   ├── data/              BibleRepository (lee los assets), Prefs, modelos
-│   ├── liturgia/          CalendarioLiturgico, Leccionario, ColaLecturas (la misa)
+│   ├── liturgia/          CalendarioLiturgico, Precedencia, Leccionario, ColaLecturas (la misa)
 │   ├── player/            PlaybackService  ← el motor de lectura
 │   │                      AudioLocal / HablanteIa ← la voz IA grabada
 │   │                      PlayerState / PlayerBus (estado compartido)
 │   ├── voz/               Director (limpieza + emociones), Segmentador (tramos),
-│   │                      Anuncios, Tramos, ClaveLectura, NumerosEnLetras, VocesIa —
+│   │                      Anuncios, Tramos, ClaveLectura, NumerosEnLetras, VocesIa,
+│   │                      TextosIa (el sello del texto que lleva el audio) —
 │   │                      código puro que también compila el generador de la PC
 │   ├── ui/                pantallas Compose + barra de reproducción
 │   └── MainActivity.kt
@@ -406,18 +425,20 @@ Dos decisiones que vale la pena conocer si algún día se toca el código:
 
 ### Cambiar de traducción
 
-Basta con sustituir los archivos de `assets/bible/` manteniendo el formato:
+Basta con sustituir los archivos de `assets/bible-cat/` manteniendo el formato:
 
 ```json
 // index.json
 {"translation":"…","abbreviation":"…","language":"es",
  "books":[{"n":1,"name":"Génesis","abbr":"Gn","t":"AT","chapters":50}, …]}
 
-// 1.json  (un archivo por libro, numerados del 1 al 66)
+// 1.json  (un archivo por libro, numerados del 1 al 73)
 {"n":1,"name":"Génesis","abbr":"Gn","chapters":[["versículo 1","versículo 2", …], …]}
 ```
 
 Ten en cuenta que las traducciones modernas (RV1960, NVI, NTV…) tienen derechos
 reservados y no se pueden distribuir dentro de una app sin licencia del editor.
-La RV1909 se usó justamente por ser de dominio público. Si cambia el texto, la voz IA
+La Santa Biblia Libre (spabll) se usó justamente por ser de dominio público; el cambio
+para México («Yahvé» se lee «el Señor» y se quitó «Selah» de los Salmos) es una
+adaptación de este proyecto, no de la traducción original. Si cambia el texto, la voz IA
 de lo cambiado se vuelve a grabar la próxima vez que se lanza `generar-audio.bat`.

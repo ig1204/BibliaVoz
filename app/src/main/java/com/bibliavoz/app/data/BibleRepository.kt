@@ -152,7 +152,7 @@ class BibleRepository private constructor(
         private val instances = HashMap<BibleVersion, BibleRepository>()
 
         @Synchronized
-        fun get(context: Context, version: BibleVersion = BibleVersion.RV1909): BibleRepository =
+        fun get(context: Context, version: BibleVersion = BibleVersion.CATOLICA): BibleRepository =
             instances.getOrPut(version) { BibleRepository(context, version) }
     }
 }

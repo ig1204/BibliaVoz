@@ -68,7 +68,7 @@ class Leccionario private constructor(context: Context) {
             ?.let { fijas.optJSONArray(it) }
             ?.let { parse(it) } ?: emptyList()
 
-        val lecturas = Precedencia.combinar(delTiempo, deLaFiesta, dia.fija?.grado) { it.titulo }
+        val lecturas = Precedencia.combinar(dia, delTiempo, deLaFiesta) { it.titulo }
         if (lecturas.isEmpty()) return null
         return LecturasDelDia(
             fecha = fecha,

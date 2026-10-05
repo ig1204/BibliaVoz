@@ -43,6 +43,27 @@ object Plan {
         return bytes.joinToString("") { "%02x".format(it) }.take(8)
     }
 
+    /**
+     * Cierra con punto el final del último tramo de una unidad cuando el texto
+     * queda «abierto» (acaba en «,» «;» «:» «—» o en letra). Las voces tratan una
+     * coma o unos dos puntos al final como frase sin terminar: entonación
+     * suspendida que suena a corte aunque no falte nada. Se deja tal cual lo que
+     * ya cierra bien: «.» «…» «!» «?» y las comillas o paréntesis de cierre.
+     */
+    fun cerrarFinal(texto: String): String {
+        val t = texto.trimEnd()
+        if (t.isEmpty()) return texto
+        val ultimo = t.last()
+        // Cierres válidos, incluidas las comillas de cierre » ” ’ (igual que
+        // Director.cierraFrase y Segmentador): no se les añade punto.
+        if (ultimo in ".!?…”’\"»)") return texto
+        return if (ultimo == ',' || ultimo == ';' || ultimo == ':' || ultimo == '—' || ultimo == '-') {
+            t.dropLast(1).trimEnd() + "."
+        } else {
+            "$t."
+        }
+    }
+
     fun capitulo(libro: Libro, numero: Int, extension: String): Unidad {
         val versos = libro.capitulos[numero - 1]
         val piezas = Segmentador.segmentar(versos).map { tramo ->
@@ -53,9 +74,11 @@ object Plan {
                 conEmociones = true,
                 libro = libro.nombre,
             )
+            // El último tramo del capítulo se cierra con punto (ver cerrarFinal).
+            val texto = if (tramo.hasta == versos.lastIndex) cerrarFinal(guion.texto) else guion.texto
             Pieza(
-                "rv-${libro.numero}-$numero-${tramo.desde}-${huella(guion.texto)}.$extension",
-                guion.texto, tramo.desde, tramo.hasta, guion.inicios,
+                "rv-${libro.numero}-$numero-${tramo.desde}-${huella(texto)}.$extension",
+                texto, tramo.desde, tramo.hasta, guion.inicios,
             )
         }
         return Unidad(GRUPO_CAPITULOS, "rv/${libro.numero}/$numero", "${libro.nombre} $numero", piezas)
@@ -73,9 +96,11 @@ object Plan {
                 conEmociones = true,
                 libro = nombreLibro,
             )
+            // El último tramo de la lectura se cierra con punto (ver cerrarFinal).
+            val texto = if (tramo.hasta == versiculos.lastIndex) cerrarFinal(guion.texto) else guion.texto
             Pieza(
-                "misa-${lectura.clave}-${tramo.desde}-${huella(guion.texto)}.$extension",
-                guion.texto, tramo.desde, tramo.hasta, guion.inicios,
+                "misa-${lectura.clave}-${tramo.desde}-${huella(texto)}.$extension",
+                texto, tramo.desde, tramo.hasta, guion.inicios,
             )
         }
         return Unidad(GRUPO_LECTURAS, lectura.clave, "${lectura.titulo}: ${lectura.cita}", piezas)

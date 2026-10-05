@@ -65,6 +65,9 @@ class DiaLiturgico(val fecha: LocalDate, val claveTemporal: String, val fija: Ce
  */
 object Precedencia {
 
+    /** Nuestra Señora de Guadalupe (12 dic), patrona de México. */
+    const val GUADALUPE = "12-12"
+
     /** Lee `fijasInfo` del leccionario: «MM-DD» → nombre y grado. */
     fun celebraciones(raiz: JSONObject): Map<String, Celebracion> {
         val info = raiz.optJSONObject("fijasInfo") ?: return emptyMap()
@@ -107,6 +110,8 @@ object Precedencia {
         val celebrada = when {
             movil == null -> fija
             fija == null -> movil
+            // Una fiesta móvil (Jesucristo Sumo Sacerdote) gana a una memoria fija.
+            movil.grado.rango < fija.grado.rango -> movil
             fija.grado == Grado.MEMORIA && movil.clave == CalendarioLiturgico.MADRE_DE_LA_IGLESIA -> movil
             else -> fija
         }
@@ -142,12 +147,55 @@ object Precedencia {
      * Las lecturas que se leen: las de la fiesta si manda una; las de una
      * memoria solo sustituyen a las de la feria con su mismo título (su lectura
      * propia), y el resto sigue siendo el de la feria de ese año.
+     *
+     * Reglas de México: entre semana, las fiestas (del Señor o de los santos) y
+     * el Bautismo del Señor en lunes se leen con 1ª lectura, salmo y Evangelio,
+     * sin 2ª lectura. Y Guadalupe, cuando cae en domingo de Adviento, toma la 2ª
+     * lectura de ese domingo (decreto de la CEM), no la de Gálatas.
      */
-    fun <T> combinar(delTiempo: List<T>, deLaFiesta: List<T>, grado: Grado?, titulo: (T) -> String): List<T> {
-        if (grado == null || deLaFiesta.isEmpty()) return delTiempo
-        if (grado != Grado.MEMORIA || delTiempo.isEmpty()) return deLaFiesta
+    fun <T> combinar(dia: DiaLiturgico, delTiempo: List<T>, deLaFiesta: List<T>, titulo: (T) -> String): List<T> {
+        val esDomingo = dia.fecha.dayOfWeek == DayOfWeek.SUNDAY
+        val esSegunda: (T) -> Boolean = { titulo(it).startsWith("Segunda lectura") }
+
+        val grado = dia.fija?.grado
+        if (grado == null || deLaFiesta.isEmpty()) {
+            // El Bautismo del Señor, cuando cae en lunes, se lee sin 2ª lectura.
+            return if (!esDomingo && dia.claveTemporal.startsWith("BAUTISMO")) {
+                delTiempo.filterNot(esSegunda)
+            } else {
+                delTiempo
+            }
+        }
+
+        // Entre semana, las fiestas del Señor y de los santos pierden la 2ª lectura.
+        val fiesta = if (!esDomingo && (grado == Grado.FIESTA || grado == Grado.FIESTA_DEL_SENOR)) {
+            deLaFiesta.filterNot(esSegunda)
+        } else {
+            deLaFiesta
+        }
+
+        if (grado != Grado.MEMORIA || delTiempo.isEmpty()) {
+            // Guadalupe en domingo de Adviento: la 2ª lectura es la de ese domingo.
+            if (dia.fija?.clave == GUADALUPE && esDomingo) {
+                val segundaDelTiempo = delTiempo.firstOrNull(esSegunda)
+                if (segundaDelTiempo != null) {
+                    // Si Guadalupe trae su 2ª lectura (lo normal: Gálatas), se sustituye;
+                    // si no la trajera, se inserta antes del Evangelio en vez de perderla.
+                    if (fiesta.any(esSegunda)) {
+                        return fiesta.map { if (esSegunda(it)) segundaDelTiempo else it }
+                    }
+                    val out = fiesta.toMutableList()
+                    val i = out.indexOfFirst { titulo(it).startsWith("Evangelio") }
+                    out.add(if (i < 0) out.size else i, segundaDelTiempo)
+                    return out
+                }
+            }
+            return fiesta
+        }
+
+        // Memoria: solo sustituye las lecturas de la feria con su mismo título.
         val propias = LinkedHashMap<String, T>()
-        for (l in deLaFiesta) propias.getOrPut(titulo(l)) { l }
+        for (l in fiesta) propias.getOrPut(titulo(l)) { l }
         val out = ArrayList<T>(delTiempo.size + propias.size)
         for (l in delTiempo) out.add(propias.remove(titulo(l)) ?: l)
         // Una lectura propia que la feria no trae va delante del evangelio.
@@ -203,6 +251,10 @@ object Precedencia {
 
     /** Una solemnidad no puede celebrarse un día de rango igual o mayor, ni sobre otra solemnidad. */
     private fun impedida(fecha: LocalDate, c: Celebracion, celebraciones: Map<String, Celebracion>): Boolean {
+        // Nuestra Señora de Guadalupe (12 dic), patrona de México y de América, se
+        // celebra siempre en su fecha, incluso cuando el 12 cae en domingo de Adviento
+        // (2027, 2032): nunca se traslada al lunes. Es la norma del propio mexicano.
+        if (c.clave == GUADALUPE) return false
         if (rangoDelTiempo(CalendarioLiturgico.claveTemporal(fecha), fecha) <= Grado.SOLEMNIDAD.rango) return true
         val otra = celebraciones[CalendarioLiturgico.claveFija(fecha)]
         return otra != null && otra !== c && otra.grado == Grado.SOLEMNIDAD

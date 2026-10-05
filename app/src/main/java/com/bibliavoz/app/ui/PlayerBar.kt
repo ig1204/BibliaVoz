@@ -1,7 +1,5 @@
 package com.bibliavoz.app.ui
 
-import android.content.Intent
-import android.speech.tts.TextToSpeech
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -45,8 +43,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.platform.LocalContext
-import com.bibliavoz.app.player.EngineError
 import com.bibliavoz.app.player.PlayerBus
 import com.bibliavoz.app.player.PlayerState
 import kotlinx.coroutines.delay
@@ -74,10 +70,6 @@ fun PlayerBar(
         // quedarían debajo de la barra de navegación del sistema.
         Column(modifier = Modifier.fillMaxWidth().navigationBarsPadding()) {
 
-            // Mientras suena la voz IA, un fallo del motor del teléfono no impide escuchar.
-            if (state.engineError != null && !state.vozIa) {
-                VoiceProblemBanner(state.engineError)
-            }
             AvisosVozIa(state)
 
             Row(
@@ -224,7 +216,7 @@ private fun SleepTimerChip(endsAt: Long, onSleepTimer: (Int) -> Unit) {
     }
 }
 
-/** Aviso de por qué se pasó de la voz IA a la del teléfono. */
+/** Aviso de la voz IA para el usuario (un archivo dañado, un pasaje sin grabar…). */
 @Composable
 fun AvisosVozIa(state: PlayerState) {
     val aviso = state.avisoVoz ?: return
@@ -247,52 +239,6 @@ fun AvisosVozIa(state: PlayerState) {
             }
         }
     }
-}
-
-/** Explica por qué no se oye nada y ofrece el atajo para arreglarlo. */
-@Composable
-private fun VoiceProblemBanner(error: EngineError) {
-    val context = LocalContext.current
-    val message = when (error) {
-        EngineError.NO_ENGINE ->
-            "Tu teléfono no tiene instalado un motor de voz. Instala «Google Text-to-Speech» para escuchar."
-        EngineError.MISSING_SPANISH ->
-            "Falta la voz en español. Descárgala desde los ajustes de texto a voz."
-        EngineError.INIT_FAILED ->
-            "El motor de voz no respondió. Revisa los ajustes de texto a voz del sistema."
-    }
-
-    Surface(
-        color = MaterialTheme.colorScheme.errorContainer,
-        modifier = Modifier.fillMaxWidth(),
-    ) {
-        Row(
-            modifier = Modifier.padding(start = 16.dp, end = 8.dp, top = 8.dp, bottom = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text(
-                text = message,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onErrorContainer,
-                modifier = Modifier.weight(1f),
-            )
-            TextButton(onClick = { openVoiceSettings(context) }) {
-                Text("Arreglar")
-            }
-        }
-    }
-}
-
-private fun openVoiceSettings(context: android.content.Context) {
-    // Primero se intenta la descarga de datos de voz; si el motor no la
-    // soporta, se abre la pantalla de ajustes de texto a voz del sistema.
-    val install = Intent(TextToSpeech.Engine.ACTION_INSTALL_TTS_DATA)
-        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-    val settings = Intent("com.android.settings.TTS_SETTINGS")
-        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-
-    val started = runCatching { context.startActivity(install) }.isSuccess
-    if (!started) runCatching { context.startActivity(settings) }
 }
 
 private fun formatSpeed(value: Float): String {

@@ -17,11 +17,11 @@ val keystoreProps = Properties().apply {
 // ---------------------------------------------------------------------- voz IA
 // Desde la 2.2 la voz IA viaja DENTRO del APK release (unos 2.9 GB de MP3), para
 // que cualquier teléfono la tenga al instalar la app, sin copiar nada por cable.
-// Sale de la carpeta del generador (E:\PG\BibliaVoz-IA\audio). Los MP3 van sin
+// Sale de la carpeta del generador (E:\PG\BibliaVoz-IA\audio-mx desde la 3.0). Los MP3 van sin
 // comprimir: así MediaPlayer los lee directamente del APK (AssetManager.openFd).
 // Para compilar rápido sin el audio:  compilar.ps1 assembleRelease -PsinVozIa
 val vozIaOrigen: File = providers.gradleProperty("vozIaDir").map { file(it) }
-    .getOrElse(rootProject.file("../BibliaVoz-IA/audio"))
+    .getOrElse(rootProject.file("../BibliaVoz-IA/audio-mx"))
 // -PsinVozIa (o =true) la deja fuera; -PsinVozIa=false la mete igual.
 val incluirVozIa = providers.gradleProperty("sinVozIa")
     .map { it.equals("false", ignoreCase = true) }
@@ -39,6 +39,10 @@ abstract class PrepararVozIa : DefaultTask() {
     @get:OutputDirectory
     abstract val salida: DirectoryProperty
 
+    /** Sello de la versión del texto que debe traer el manifiesto (TextosIa.ID). */
+    @get:Input
+    abstract val textosId: Property<String>
+
     init {
         // El origen cambia cada vez que el generador graba algo: se revisa siempre.
         outputs.upToDateWhen { false }
@@ -47,19 +51,58 @@ abstract class PrepararVozIa : DefaultTask() {
     @TaskAction
     fun preparar() {
         val desde = origen.get().asFile
-        if (!File(desde, "manifest.json").isFile) {
+        val manifiesto = File(desde, "manifest.json")
+        if (!manifiesto.isFile) {
             throw GradleException(
                 "No hay voz IA en $desde (falta manifest.json). Genera el audio con " +
                     "generar-audio.bat o compila sin él: compilar.ps1 assembleRelease -PsinVozIa"
             )
         }
+        @Suppress("UNCHECKED_CAST")
+        val raiz = groovy.json.JsonSlurper().parse(manifiesto) as Map<String, Any?>
+
+        // El sello del texto tiene que coincidir con TextosIa.ID: así nunca entra
+        // en el APK audio grabado con otra Biblia o con otro leccionario (diría algo
+        // distinto de lo que muestra la pantalla).
+        val idManifiesto = raiz["textos"] as? String
+        if (idManifiesto != textosId.get()) {
+            throw GradleException(
+                "El audio de $desde es de otra versión del texto (textos=\"$idManifiesto\", se esperaba " +
+                    "\"${textosId.get()}\"). Regenera el audio con el texto actual (otra carpeta con -PvozIaDir)."
+            )
+        }
+
+        // Solo los archivos que el manifiesto referencia, NO todo .mp3 de la carpeta:
+        // así nunca se cuela audio huérfano de un reparto anterior (que además haría
+        // pasar el APK del límite de 4 GiB).
+        val referenciados = LinkedHashSet<String>()
+        for (grupo in listOf("capitulos", "lecturas")) {
+            val g = raiz[grupo] as? Map<String, Any?> ?: continue
+            for (unidad in g.values) {
+                for (tramo in (unidad as List<Any?>)) {
+                    referenciados.add((tramo as List<Any?>)[2] as String)
+                }
+            }
+        }
+
+        var bytes = 0L
+        for (nombre in referenciados) {
+            val f = File(desde, nombre)
+            if (!f.isFile) throw GradleException("Falta el audio «$nombre» que el manifiesto referencia. Regenera el audio.")
+            bytes += f.length()
+        }
+        // Una APK no admite ZIP64: pasar de 4 GiB rompe la firma o la instalación.
+        if (bytes > 3_900_000_000L) {
+            throw GradleException("La voz IA no cabe en una APK (límite 4 GiB): el audio referenciado suma ${bytes / (1024 * 1024)} MB.")
+        }
+
         val destino = File(salida.get().asFile, "voz-ia").apply { mkdirs() }
-        val quiero = desde.listFiles { f -> f.isFile && (f.name.endsWith(".mp3") || f.name == "manifest.json") }
-            .orEmpty().associateBy { it.name }
-        // Lo que ya no está en el origen (audio de un reparto anterior) sobra.
+        val quiero = referenciados + "manifest.json"
+        // Lo que ya no está referenciado (audio de un reparto anterior) sobra.
         destino.listFiles().orEmpty().filter { it.name !in quiero }.forEach { it.delete() }
         var nuevos = 0
-        for ((nombre, f) in quiero) {
+        for (nombre in quiero) {
+            val f = File(desde, nombre)
             val d = File(destino, nombre)
             if (d.isFile && d.length() == f.length() && d.lastModified() == f.lastModified()) continue
             d.delete()
@@ -68,13 +111,23 @@ abstract class PrepararVozIa : DefaultTask() {
             }
             nuevos++
         }
-        logger.lifecycle("Voz IA: ${quiero.size} archivos en el APK ($nuevos nuevos o cambiados).")
+        logger.lifecycle("Voz IA: ${quiero.size} archivos en el APK ($nuevos nuevos o cambiados, ${bytes / (1024 * 1024)} MB).")
     }
+}
+
+// El ID esperado se saca de la propia TextosIa.kt (una sola fuente de verdad):
+// así, si se sube el sello al cambiar la Biblia o el leccionario, el empaquetado
+// exige audio regrabado con ese texto.
+val textosIaId: String = run {
+    val f = file("src/main/java/com/bibliavoz/app/voz/TextosIa.kt")
+    Regex("""const\s+val\s+ID\s*=\s*"([^"]+)"""").find(f.readText())?.groupValues?.get(1)
+        ?: throw GradleException("No encontré TextosIa.ID en ${f.path}")
 }
 
 val prepararVozIa = tasks.register<PrepararVozIa>("prepararVozIa") {
     origen.set(vozIaOrigen)
     salida.set(layout.buildDirectory.dir("vozIa"))
+    textosId.set(textosIaId)
 }
 
 android {
@@ -85,8 +138,8 @@ android {
         applicationId = "com.bibliavoz.app"
         minSdk = 24
         targetSdk = 35
-        versionCode = 7
-        versionName = "2.2"
+        versionCode = 8
+        versionName = "3.0"
         resourceConfigurations += setOf("es", "en")
     }
 
@@ -140,8 +193,9 @@ android {
     }
 
     androidResources {
-        // La voz IA se reproduce desde dentro del APK: tiene que ir sin comprimir.
-        noCompress += listOf("mp3")
+        // La voz IA se reproduce desde dentro del APK: tiene que ir sin comprimir
+        // (MediaPlayer la abre con AssetManager.openFd). Vale mp3 y opus.
+        noCompress += listOf("mp3", "opus")
     }
 }
 

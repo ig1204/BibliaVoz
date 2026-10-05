@@ -95,7 +95,7 @@ function Get-WeekdayCycle([int]$litYear) {
     if ($litYear % 2 -eq 1) { 'I' } else { 'II' }
 }
 
-function Get-TemporalKey([datetime]$d) {
+function Get-TemporalKey([datetime]$d, [switch]$Fuente) {
     $y = $d.Year
     $dow = [int]$d.DayOfWeek
     $litYear = Get-LiturgicalYear $d
@@ -171,10 +171,15 @@ function Get-TemporalKey([datetime]$d) {
     # Solemnidades moviles atadas a la Pascua, que caen ya en Tiempo Ordinario
     # y desplazan a la feria que tocaria ese dia.
     $trinity = $easter.AddDays(56)          # domingo siguiente a Pentecostes
-    $corpus = $easter.AddDays(63)           # domingo siguiente a la Trinidad (EE.UU.)
+    # En Mexico el Corpus es el JUEVES despues de la Trinidad (pascua+60), y el
+    # domingo siguiente vuelve a ser domingo ordinario. La fuente de EE. UU. lo
+    # trae el domingo (pascua+63): al CLASIFICAR la fuente se usa su fecha
+    # (-Fuente) para que sus lecturas caigan en CORPUS-A/B/C; para el calendario
+    # de la app (sin -Fuente) se usa el jueves mexicano.
+    $corpus = if ($Fuente) { $easter.AddDays(63) } else { $easter.AddDays(60) }
     $sacredHeart = $easter.AddDays(68)      # viernes siguiente
     if ($d -eq $trinity) { return "TRINIDAD$suffix" }
-    if ($d -eq $corpus) { return "CORPUS$suffix" }
+    if ($d -eq $corpus) { return "CORPUS-$sundayCycle" }
     # El Sagrado Corazon tiene ciclo propio A/B/C aunque caiga en viernes
     # (nº oficial 170 = A, 171 = B, 172 = C), no el ciclo ferial I/II.
     if ($d -eq $sacredHeart) { return 'SAGCORAZON-' + $sundayCycle }
@@ -232,11 +237,17 @@ $FIJAS = [ordered]@{
     '01-25' = @{ n = 'La Conversión de San Pablo, apóstol'; g = 'F'; lect = @(519) }
     '01-26' = @{ n = 'Santos Timoteo y Tito, obispos'; g = 'M'; lect = @(520); propias = @('Primera lectura', 'Salmo responsorial') }
     '02-02' = @{ n = 'La Presentación del Señor'; g = 'FS'; lect = @(524) }
+    # Fiesta propia de México; lecturas a mano (la fuente de EE. UU. no la trae).
+    '02-05' = @{ n = 'San Felipe de Jesús, protomártir de México'; g = 'F'; lect = @() }
     '02-22' = @{ n = 'La Cátedra de San Pedro, apóstol'; g = 'F'; lect = @(535) }
     '03-19' = @{ n = 'San José, esposo de la Virgen María'; g = 'S'; lect = @(543) }
     '03-25' = @{ n = 'La Anunciación del Señor'; g = 'S'; lect = @(545) }
     '04-25' = @{ n = 'San Marcos, evangelista'; g = 'F'; lect = @(555, 573) }
-    '05-03' = @{ n = 'Santos Felipe y Santiago, apóstoles'; g = 'F'; lect = @(561) }
+    # México: el 3 de mayo es la Santa Cruz y el 4, Felipe y Santiago (en EE. UU.
+    # los dos apóstoles van el 3). Sus lecturas se ponen a mano ($A_MANO): con
+    # lect = @() se descartan los registros nº 561/638 de la fuente (son ≥ 509).
+    '05-03' = @{ n = 'La Santa Cruz'; g = 'F'; lect = @() }
+    '05-04' = @{ n = 'Santos Felipe y Santiago, apóstoles'; g = 'F'; lect = @() }
     '05-14' = @{ n = 'San Matías, apóstol'; g = 'F'; lect = @(564) }
     '05-31' = @{ n = 'La Visitación de la Virgen María'; g = 'F'; lect = @(572) }
     '06-11' = @{ n = 'San Bernabé, apóstol'; g = 'M'; lect = @(580); propias = @('Primera lectura', 'Salmo responsorial') }
@@ -253,8 +264,15 @@ $FIJAS = [ordered]@{
     '08-15' = @{ n = 'La Asunción de la Virgen María'; g = 'S'; lect = @(621, 622) }
     '08-24' = @{ n = 'San Bartolomé, apóstol'; g = 'F'; lect = @(629) }
     '08-29' = @{ n = 'El Martirio de San Juan Bautista'; g = 'M'; lect = @(); firma = 'Marcos 6, 17-29'; propias = @('Evangelio') }
+    # Fiesta propia de México (patrona de América); lecturas a mano.
+    '08-30' = @{ n = 'Santa Rosa de Lima, virgen'; g = 'F'; lect = @() }
     '09-08' = @{ n = 'La Natividad de la Virgen María'; g = 'F'; lect = @(636) }
-    '09-14' = @{ n = 'La Exaltación de la Santa Cruz'; g = 'FS'; lect = @(638) }
+    # La Exaltación de la Santa Cruz (14 sep): fiesta del Señor UNIVERSAL, distinta
+    # de 'La Santa Cruz' propia de México del 3 de mayo ('05-03'). México la lee con
+    # estructura ORDINARIA (solo 1ª, salmo y Evangelio, sin 2ª lectura, por decision
+    # del usuario), tambien cuando cae en domingo. Lecturas a mano; lect=@() descarta
+    # el registro nº 638 de la fuente.
+    '09-14' = @{ n = 'La Exaltación de la Santa Cruz'; g = 'FS'; lect = @() }
     '09-15' = @{ n = 'Nuestra Señora de los Dolores'; g = 'M'; lect = @(); firma = 'Juan 19, 25-27'; propias = @('Evangelio') }
     '09-21' = @{ n = 'San Mateo, apóstol y evangelista'; g = 'F'; lect = @(643) }
     '09-29' = @{ n = 'Santos Miguel, Gabriel y Rafael, arcángeles'; g = 'F'; lect = @(647) }
@@ -268,8 +286,10 @@ $FIJAS = [ordered]@{
     '11-09' = @{ n = 'La Dedicación de la Basílica de Letrán'; g = 'FS'; lect = @(671) }
     '11-30' = @{ n = 'San Andrés, apóstol'; g = 'F'; lect = @(684) }
     '12-08' = @{ n = 'La Inmaculada Concepción de la Virgen María'; g = 'S'; lect = @(689) }
-    # En Mexico es solemnidad (en EE. UU., fiesta): se usan las lecturas de la fuente.
-    '12-12' = @{ n = 'Nuestra Señora de Guadalupe'; g = 'S'; lect = @(690) }
+    # En Mexico es solemnidad (en EE. UU., fiesta). Mexico cambia las CUATRO partes
+    # respecto al leccionario de EE. UU. (Is 7; Sal 66/67; Gal 4; Lc 1,39-48), asi
+    # que van a mano ($A_MANO); con lect = @() se descarta el registro nº 690.
+    '12-12' = @{ n = 'Nuestra Señora de Guadalupe'; g = 'S'; lect = @() }
     '12-26' = @{ n = 'San Esteban, protomártir'; g = 'F'; lect = @(696) }
     '12-27' = @{ n = 'San Juan, apóstol y evangelista'; g = 'F'; lect = @(697) }
     '12-28' = @{ n = 'Los Santos Inocentes, mártires'; g = 'F'; lect = @(698) }
@@ -334,6 +354,14 @@ $A_MANO = [ordered]@{
     'ORD-10-0-A'  = @{ lect = 88; partes = @(@('Primera lectura', 'Hos 6:3-6'), @('Salmo responsorial', 'Ps 50:1, 8, 12-13, 14-15'), @('Segunda lectura', 'Rom 4:18-25'), @('Evangelio', 'Mt 9:9-13')) }
     'ORD-7-0-B'   = @{ lect = 80; partes = @(@('Primera lectura', 'Is 43:18-19, 21-22, 24b-25'), @('Salmo responsorial', 'Ps 41:2-3, 4-5, 13-14'), @('Segunda lectura', '2 Cor 1:18-22'), @('Evangelio', 'Mk 2:1-12')) }
     'ORD-8-0-B'   = @{ lect = 83; partes = @(@('Primera lectura', 'Hos 2:16b, 17b, 21-22'), @('Salmo responsorial', 'Ps 103:1-2, 3-4, 8, 10, 12-13'), @('Segunda lectura', '2 Cor 3:1b-6'), @('Evangelio', 'Mk 2:18-22')) }
+    # Domingos ordinarios que libera el paso del Corpus al jueves (MX-01): con el
+    # Corpus en pascua+60, el domingo siguiente vuelve a ser ordinario. La fuente
+    # de EE. UU. nunca los trajo (alli el Corpus seguia tapandolos). Verificados
+    # con el Leccionario romano (catholic-resources.org / USCCB). Salmos en
+    # numeracion hebrea (Get-SalmoLiturgico los reetiqueta a la Vulgata).
+    'ORD-9-0-A'   = @{ lect = 85; partes = @(@('Primera lectura', 'Dt 11:18, 26-28, 32'), @('Salmo responsorial', 'Ps 31:2-3, 3-4, 17, 25'), @('Segunda lectura', 'Rom 3:21-25, 28'), @('Evangelio', 'Mt 7:21-27')) }
+    'ORD-9-0-B'   = @{ lect = 86; partes = @(@('Primera lectura', 'Dt 5:12-15'), @('Salmo responsorial', 'Ps 81:3-4, 5-6, 7-8, 10-11'), @('Segunda lectura', '2 Cor 4:6-11'), @('Evangelio', 'Mk 2:23-3:6')) }
+    'ORD-11-0-C'  = @{ lect = 93; partes = @(@('Primera lectura', '2 Sm 12:7-10, 13'), @('Salmo responsorial', 'Ps 32:1-2, 5, 7, 11'), @('Segunda lectura', 'Gal 2:16, 19-21'), @('Evangelio', 'Lk 7:36-8:3')) }
     # Segunda lectura del domingo 23 C, que la fuente omite (Filemon).
     'ORD-23-0-C'  = @{ lect = 129; partes = @(, @('Segunda lectura', 'Phlm 9-10, 12-17')) }
     # Primeras lecturas que la fuente omite: Filemon, 2 y 3 Juan, Judas y Ester.
@@ -378,21 +406,48 @@ $A_MANO = [ordered]@{
     # Domingo XXX del ciclo C: Eclo 35, 12-14. 16-18 = 35, 12-14. 16-17 (el 18
     # de esta Biblia sigue con versos que el leccionario no lee).
     'ORD-30-0-C'  = @{ lect = 150; partes = @(, @('Primera lectura', @{ b = 28; c = 'Eclesiástico 35, 12-14. 16-18'; r = @(@(35, 12, 35, 14), @(35, 16, 35, 17)) })) }
+    # Fiestas propias de México (calendario de la CEM). Citas en numeracion
+    # hebrea de los salmos (Get-SalmoLiturgico las reetiqueta a la Vulgata, p. ej.
+    # Sal 78 -> 77, Sal 67 -> 66, Sal 124 -> 123). Los salmos cortos se leen
+    # completos, asi que la seleccion exacta de versiculos solo afecta la etiqueta.
+    # La Santa Cruz (3 may): misal.mx/2024-05-03 (Flp 2; Sal 77; Jn 3,13-17).
+    '05-03'       = @{ lect = 638; partes = @(@('Primera lectura', 'Phil 2:6-11'), @('Salmo responsorial', 'Ps 78:1bc-2, 34-35, 36-37, 38'), @('Evangelio', 'Jn 3:13-17')) }
+    # Felipe y Santiago (4 may): misalmx.com/2026-05-04 (1 Cor 15; Sal 18; Jn 14,6-14).
+    '05-04'       = @{ lect = 561; partes = @(@('Primera lectura', '1 Cor 15:1-8'), @('Salmo responsorial', 'Ps 19:2-3, 4-5'), @('Evangelio', 'Jn 14:6-14')) }
+    # San Felipe de Jesus (5 feb): misal.mx/2025-02-05 (Sab 3; Sal 123=124 heb; Lc 9,23-26).
+    '02-05'       = @{ lect = 970; partes = @(@('Primera lectura', 'Wis 3:1-9'), @('Salmo responsorial', 'Ps 124'), @('Evangelio', 'Lk 9:23-26')) }
+    # Santa Rosa de Lima (30 ago): misal.mx/2025-08-30 (2 Cor 10,17-11,2; Sal 148; Mt 13,44-46).
+    '08-30'       = @{ lect = 971; partes = @(@('Primera lectura', '2 Cor 10:17-11:2'), @('Salmo responsorial', 'Ps 148'), @('Evangelio', 'Mt 13:44-46')) }
+    # Exaltación de la Santa Cruz (14 sep), nº 638: SOLO 3 partes (estructura
+    # ordinaria, sin 2ª lectura). El salmo y el Evangelio son los mismos que la Santa
+    # Cruz del 3 de mayo (misma ClaveLectura); solo Nm 21 como 1ª lectura es nueva.
+    # Verificado (dominicos.org / ACI Prensa / USCCB nº 638).
+    '09-14'       = @{ lect = 638; partes = @(@('Primera lectura', 'Nm 21:4b-9'), @('Salmo responsorial', 'Ps 78:1bc-2, 34-35, 36-37, 38'), @('Evangelio', 'Jn 3:13-17')) }
+    # Guadalupe (12 dic): misal.mx cambia las cuatro partes respecto a EE. UU.
+    # El salmo es 67 en numeracion hebrea (66 en la Vulgata del misal).
+    '12-12'       = @{ lect = 690; partes = @(@('Primera lectura', 'Is 7:10-14'), @('Salmo responsorial', 'Ps 67:2-3, 5, 7-8'), @('Segunda lectura', 'Gal 4:4-7'), @('Evangelio', 'Lk 1:39-48')) }
 }
 
-# Memorias obligatorias moviles, que dependen de la Pascua: la app calcula su
-# dia (CalendarioLiturgico.memoriaMovil) y aqui van su nombre, su grado y sus
-# lecturas propias, con la misma notacion que $A_MANO. La fuente las trae con
-# numero de feria o del santoral ($FIESTAS_DESCARTADAS), asi que no se toman de
-# ella. La clave no es una fecha: van a la tabla fija y a fijasInfo.
+# Celebraciones moviles que dependen de la Pascua: la app calcula su dia
+# (CalendarioLiturgico.memoriaMovil) y aqui van su nombre, su grado y sus lecturas,
+# con la misma notacion que $A_MANO. La fuente las trae con numero de feria o del
+# santoral ($FIESTAS_DESCARTADAS), o no las trae (la fiesta propia de México), asi
+# que no se toman de ella. La clave no es una fecha: van a la tabla fija y a
+# fijasInfo. Sin 'propias' se exigen las tres lecturas (1ª, salmo, Evangelio); con
+# 'propias' solo se usan esas y el resto es la feria de ese ano.
 #   Santa Maria, Madre de la Iglesia: lunes despues de Pentecostes (nº 572).
+#   Jesucristo, Sumo y Eterno Sacerdote: jueves despues de Pentecostes; Fiesta
+#   propia de México (misal.mx/2025-06-12: Is 52,13-53,12; Sal 39=40 heb; Lc 22,14-20).
 #   Inmaculado Corazon: sabado despues del Sagrado Corazon (nº 573); solo el
 #   evangelio es propio, el resto es la feria de ese ano.
 $MOVILES = [ordered]@{
-    'MADRE-IGLESIA' = @{ n = 'Santa María, Madre de la Iglesia'; g = 'M'; lect = 572; propias = @('Primera lectura', 'Salmo responsorial', 'Evangelio')
-                         partes = @(@('Primera lectura', 'Gn 3:9-15, 20'), @('Salmo responsorial', 'Ps 87:1-2, 3 and 5, 6-7'), @('Evangelio', 'Jn 19:25-34')) }
-    'CORAZON-MARIA' = @{ n = 'Inmaculado Corazón de la Virgen María'; g = 'M'; lect = 573; propias = @('Evangelio')
-                         partes = @(, @('Evangelio', 'Lk 2:41-51')) }
+    'MADRE-IGLESIA'  = @{ n = 'Santa María, Madre de la Iglesia'; g = 'M'; lect = 572; propias = @('Primera lectura', 'Salmo responsorial', 'Evangelio')
+                          partes = @(@('Primera lectura', 'Gn 3:9-15, 20'), @('Salmo responsorial', 'Ps 87:1-2, 3 and 5, 6-7'), @('Evangelio', 'Jn 19:25-34')) }
+    # Fiesta propia de México: Is 52,13-53,12 reusa la ClaveLectura de TRI-VIE.
+    'SUMO-SACERDOTE' = @{ n = 'Jesucristo, Sumo y Eterno Sacerdote'; g = 'F'; lect = 972
+                          partes = @(@('Primera lectura', 'Is 52:13-53:12'), @('Salmo responsorial', 'Ps 40'), @('Evangelio', 'Lk 22:14-20')) }
+    'CORAZON-MARIA'  = @{ n = 'Inmaculado Corazón de la Virgen María'; g = 'M'; lect = 573; propias = @('Evangelio')
+                          partes = @(, @('Evangelio', 'Lk 2:41-51')) }
 }
 
 # ----------------------------------------------------------------- proceso
@@ -491,7 +546,8 @@ foreach ($ds in $dates) {
 
     $records[$ds] = @{
         date = $d
-        temporalKey = Get-TemporalKey $d
+        # La fuente es el calendario de EE. UU.: el Corpus va en pascua+63.
+        temporalKey = Get-TemporalKey $d -Fuente
         fixedKey = '{0:00}-{1:00}' -f $d.Month, $d.Day
         parts = $parts
         fingerprint = (($parts | ForEach-Object { "$($_.tipo)=$($_.parsed.label)" }) -join '|')
@@ -641,9 +697,7 @@ $VERSIFICACION = @(
     @(16, 3, 33, 38, 4, -32), @(16, 4, 1, 17, 4, 6)                 # Nehemias 4
     @(16, 10, 1, 1, 9, 37), @(16, 10, 2, 40, 10, -1)                # Nehemias 10
     @(22, 40, 25, 32, 41, -24), @(22, 41, 1, 26, 41, 8)             # Job 41
-    @(23, 18, 2, 51, 18, -1), @(23, 22, 2, 32, 22, -1)              # Salmos 18 y 22
-    @(23, 68, 2, 36, 68, -1), @(23, 69, 2, 37, 69, -1)              # Salmos 68 y 69
-    , @(23, 89, 2, 53, 89, -1)                                      # Salmo 89
+    # Los salmos con titulo van aparte (se generan abajo, tras $reglasVersif).
     @(25, 4, 17, 17, 5, -16), @(25, 5, 1, 19, 5, 1)                 # Eclesiastes 5
     @(26, 7, 1, 1, 6, 12), @(26, 7, 2, 14, 7, -1)                   # Cantar 7
     @(29, 8, 23, 23, 9, -22), @(29, 9, 1, 20, 9, 1)                 # Isaias 9
@@ -671,6 +725,28 @@ foreach ($rg in $VERSIFICACION) {
     if (-not $reglasVersif.ContainsKey($clave)) { $reglasVersif[$clave] = New-Object System.Collections.ArrayList }
     [void]$reglasVersif[$clave].Add($rg)
 }
+
+# Salmos con titulo: en la numeracion HEBREA del leccionario el titulo cuenta como
+# versiculo(s); en la SBL (que sigue la KJV) el titulo va DENTRO del v.1. Hay que
+# restar 1 (titulo de una linea) o 2 (titulo de dos lineas) a cada verso citado.
+# El v.1 (y el v.2 en los de -2) caen en el v.1 de la SBL. Lista confirmada contra
+# bible-cat. El NUMERO que se muestra sigue siendo el de la Vulgata (Get-SalmoLiturgico);
+# esto solo convierte los VERSICULOS de los rangos.
+$SALMOS_MENOS_1 = @(3, 4, 5, 6, 7, 8, 9, 12, 18, 19, 20, 21, 22, 30, 31, 34, 36, 38, 39, 40, 41, 42,
+    44, 45, 46, 47, 48, 49, 53, 55, 56, 57, 58, 59, 61, 62, 63, 64, 65, 67, 68, 69, 70, 75, 76, 77,
+    80, 81, 83, 84, 85, 88, 89, 92, 102, 108, 140, 142)
+$SALMOS_MENOS_2 = @(51, 52, 54, 60)
+function Add-ReglaVersif($rg) {
+    $clave = "$($rg[0])-$($rg[1])"
+    if (-not $reglasVersif.ContainsKey($clave)) { $reglasVersif[$clave] = New-Object System.Collections.ArrayList }
+    [void]$reglasVersif[$clave].Add($rg)
+}
+foreach ($p in $SALMOS_MENOS_1) { Add-ReglaVersif @(23, $p, 2, 200, $p, -1) }   # v>=2 -> v-1; v1 -> 1
+foreach ($p in $SALMOS_MENOS_2) {
+    Add-ReglaVersif @(23, $p, 2, 2, $p, -1)                                      # v2 -> 1
+    Add-ReglaVersif @(23, $p, 3, 200, $p, -2)                                    # v>=3 -> v-2; v1 -> 1
+}
+# Salmo 13: v2-5 hebreos -> v-1; el v6 hebreo son el 5 y el 6 de la SBL (ver Convert-Segment).
 
 function Convert-Verse([int]$book, [int]$c, [int]$v, [bool]$esFin, [string]$sfx) {
     if ($v -eq $HASTA_EL_FINAL) { return @($c, $v) }
@@ -705,6 +781,14 @@ function Convert-Segment([int]$book, $seg) {
         $ini = [Math]::Max($seg[1], 25)
         [void]$out.Add(@(14, ($ini - 1), 14, ($seg[3] - 1)))
         return , $out.ToArray()
+    }
+    # Salmo 13: titulo de una linea (v2-5 -> v-1), pero el v6 hebreo se repartio en
+    # los versiculos 5 y 6 de la SBL. Un tramo que empieza en el v6 arranca en el 5;
+    # uno que termina en el v6 llega al 6.
+    if ($book -eq 23 -and $seg[0] -eq 13 -and $seg[2] -eq 13) {
+        $ini = if ($seg[1] -ge 6) { 5 } elseif ($seg[1] -ge 2) { $seg[1] - 1 } else { 1 }
+        $fin = if ($seg[3] -ge 6) { 6 } elseif ($seg[3] -ge 2) { $seg[3] - 1 } else { 1 }
+        return , @(, @(13, $ini, 13, $fin))
     }
     $a = Convert-Verse $book $seg[0] $seg[1] $false ([string]$seg[4])
     # Un versiculo suelto partido ("19b") termina donde empieza.
@@ -759,37 +843,46 @@ function Adjust-Ranges([int]$book, $tramos, [string]$donde) {
     return ,$out.ToArray()
 }
 
-# El salmo responsorial se lee COMPLETO cuando es corto: el desfase de los
-# titulos (0, 1 o 2 versiculos segun el salmo) haria que un tramo citado
-# sonara desplazado, y eso no se nota al oirlo. Leerlo entero nunca miente.
-# Los largos (mas de 30) se leen por sus versiculos, ya convertidos.
-$LIMITE_SALMO_COMPLETO = 30
+# Numeracion de los salmos: la app (y la Biblia empaquetada) usa la HEBREA; el
+# Leccionario mexicano usa la griega/Vulgata (Sal 79 donde la app dice 80). Esta
+# funcion pasa el numero hebreo $n al de la Vulgata, usando el primer versiculo
+# citado $v para los dos salmos que la Vulgata parte en dos (116 y 147). Solo
+# cambia la ETIQUETA que se muestra y se locuta; los versiculos de los rangos
+# siguen con el numero hebreo. (MX-08.)
+function Get-SalmoLiturgico([int]$n, [int]$v) {
+    if ($n -ge 9 -and $n -le 10) { return 9 }
+    if ($n -ge 11 -and $n -le 113) { return $n - 1 }
+    if ($n -ge 114 -and $n -le 115) { return 113 }
+    if ($n -eq 116) { if ($v -le 9) { return 114 } else { return 115 } }
+    if ($n -ge 117 -and $n -le 146) { return $n - 1 }
+    if ($n -eq 147) { if ($v -le 11) { return 146 } else { return 147 } }
+    return $n
+}
 
 # Una lectura interpretada -> @{ t; c; b; r } con los tramos de la Biblia empaquetada.
 function Resolve-Part([string]$tipo, $parsed, [string]$donde) {
     $book = $parsed.book
     $tramos = New-Object System.Collections.ArrayList
-    if ($book -eq 23 -and $tipo -eq 'Salmo responsorial') {
-        $vistos = @{}
-        foreach ($s in $parsed.segs) {
-            $cap = $s[0]
-            if ($cap -ge 1 -and $cap -le $estructura[23].Count -and $estructura[23][$cap - 1] -le $LIMITE_SALMO_COMPLETO) {
-                if (-not $vistos.ContainsKey($cap)) { $vistos[$cap] = 1; [void]$tramos.Add(@($cap, 1, $cap, $estructura[23][$cap - 1])) }
-                continue
-            }
-            foreach ($t in (Convert-Segment $book $s)) { [void]$tramos.Add($t) }
-        }
-    } else {
-        foreach ($s in $parsed.segs) {
-            $conv = Convert-Segment $book $s
-            foreach ($t in $conv) {
-                [void]$tramos.Add($t)
-                if ($t[0] -ne $s[0] -or $t[1] -ne $s[1] -or $t[2] -ne $s[2] -or $t[3] -ne $s[3]) { $ajustes["$($SPANISH[$book])"] = 1 }
-            }
+    # Todas las lecturas, incluido el salmo responsorial, leen SUS versiculos
+    # citados (convertidos de la numeracion del leccionario a la de la Biblia
+    # empaquetada); ya no se fuerza leer el salmo entero.
+    foreach ($s in $parsed.segs) {
+        $conv = Convert-Segment $book $s
+        foreach ($t in $conv) {
+            [void]$tramos.Add($t)
+            if ($t[0] -ne $s[0] -or $t[1] -ne $s[1] -or $t[2] -ne $s[2] -or $t[3] -ne $s[3]) { $ajustes["$($SPANISH[$book])"] = 1 }
         }
     }
     $r = Adjust-Ranges $book (Remove-Overlaps $tramos.ToArray()) $donde
-    return @{ t = $tipo; c = $parsed.label; b = $book; r = $r }
+    # El salmo responsorial se etiqueta con la numeracion de la Vulgata del misal
+    # mexicano, aunque los tramos sigan leyendo del salmo hebreo (MX-08).
+    $label = $parsed.label
+    if ($book -eq 23 -and $tipo -eq 'Salmo responsorial') {
+        $hebreo = [int]$parsed.segs[0][0]
+        $vulgata = Get-SalmoLiturgico $hebreo ([int]$parsed.segs[0][1])
+        if ($vulgata -ne $hebreo) { $label = $label -replace "^Salmo\s+$hebreo\b", "Salmo $vulgata" }
+    }
+    return @{ t = $tipo; c = $label; b = $book; r = $r }
 }
 
 function Sort-Parts($lista) {
@@ -900,7 +993,6 @@ function Test-Parts($lista, [string]$donde, [string[]]$requeridas) {
         $n = 0
         foreach ($t in $l.r) { $n += Get-VersesCount $l.b $t }
         if ($n -eq 0) { [void]$errores.Add("$donde : '$($l.t)' ($($l.c)) no tiene ningun versiculo") }
-        if ($l.t -eq 'Salmo responsorial' -and $n -gt $LIMITE_SALMO_COMPLETO) { [void]$errores.Add("$donde : el salmo '$($l.c)' tiene $n versiculos") }
     }
 }
 
@@ -912,7 +1004,7 @@ foreach ($k in $tablaTemporales.Keys) {
 }
 foreach ($k in $tablaFijas.Keys) {
     $info = if ($MOVILES.Contains($k)) { $MOVILES[$k] } else { $FIJAS[$k.Substring(0, 5)] }
-    $req = if ($info.propias) { @() } elseif ($info.g -eq 'S' -and $k -ne '12-12') { @('Primera lectura', 'Salmo responsorial', 'Segunda lectura', 'Evangelio') } else { @('Primera lectura', 'Salmo responsorial', 'Evangelio') }
+    $req = if ($info.propias) { @() } elseif ($info.g -eq 'S') { @('Primera lectura', 'Salmo responsorial', 'Segunda lectura', 'Evangelio') } else { @('Primera lectura', 'Salmo responsorial', 'Evangelio') }
     Test-Parts $tablaFijas[$k] "fijas/$k" $req
 }
 foreach ($fk in $FIJAS.Keys) {
@@ -960,7 +1052,7 @@ function Emit-List($lista) {
 }
 
 $sb = New-Object System.Text.StringBuilder
-[void]$sb.Append('{"fuente":"Leccionario romano general","fijas":{')
+[void]$sb.Append('{"fuente":"Leccionario de México (CEM)","fijas":{')
 $i = 0
 foreach ($k in ($tablaFijas.Keys | Sort-Object)) {
     if ($i++ -gt 0) { [void]$sb.Append(',') }

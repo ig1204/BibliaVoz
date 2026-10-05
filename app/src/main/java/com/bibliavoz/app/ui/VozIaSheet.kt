@@ -1,13 +1,11 @@
 package com.bibliavoz.app.ui
 
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -15,13 +13,11 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -61,21 +57,7 @@ fun VozIaSheet(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
 
-            Row(
-                modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Column(Modifier.weight(1f)) {
-                    Text("Leer con la voz IA", style = MaterialTheme.typography.bodyLarge)
-                    Text(
-                        text = "Donde haya audio grabado; lo demás lo lee la voz del teléfono",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-                Spacer(Modifier.size(8.dp))
-                Switch(checked = estado.activa, onCheckedChange = viewModel::setVozIaActiva)
-            }
+            Spacer(Modifier.height(16.dp))
 
             Surface(
                 color = if (estado.hayAudio) {
@@ -99,7 +81,7 @@ fun VozIaSheet(
                             val total = viewModel.totalCapitulos
                             Text(
                                 text = "${estado.capitulos}" + (if (total > 0) " de $total" else "") +
-                                    " capítulos de la Reina-Valera",
+                                    " capítulos de la Biblia",
                                 style = MaterialTheme.typography.bodyMedium,
                             )
                             Text(
@@ -115,17 +97,17 @@ fun VozIaSheet(
                             }
                         }
                         else -> Text(
-                            text = "Esta copia de la app no trae el audio de la voz IA; mientras, " +
-                                "lee la voz del teléfono. Instala el APK completo de Biblia en Voz.",
+                            text = "Esta copia de la app no trae el audio de la voz. Instala el " +
+                                "APK completo de Biblia en Voz para poder escucharla.",
                             style = MaterialTheme.typography.bodyMedium,
                         )
                     }
                     // Solo cuenta lo que tiene todos sus archivos: si el manifiesto
-                    // nombra más, la copia desde la PC quedó a medias.
+                    // nombra más, el APK o la copia por cable quedó a medias.
                     if (estado.revisado && estado.faltanArchivos) {
                         Spacer(Modifier.height(6.dp))
                         Text(
-                            text = "Faltan archivos de audio; vuelve a copiar la voz IA desde la PC.",
+                            text = "Faltan archivos de audio; reinstala el APK completo de Biblia en Voz.",
                             style = MaterialTheme.typography.bodyMedium,
                             fontWeight = FontWeight.SemiBold,
                             color = MaterialTheme.colorScheme.error,

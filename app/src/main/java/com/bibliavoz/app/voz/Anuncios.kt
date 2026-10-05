@@ -101,8 +101,10 @@ object Anuncios {
      *   del nueve al catorce.»
      * - «Lectura del santo Evangelio según san Marcos, capítulo dieciséis,
      *   versículos del quince al veinte.»
-     * - Un salmo se lee completo (ver el leccionario), así que solo se nombra:
-     *   «Salmo responsorial. Salmo ochenta y cinco.»
+     * - Un salmo se anuncia con su número (en la numeración del misal) y SUS
+     *   versículos citados, que son los que se leen: «Salmo responsorial. Salmo
+     *   setenta y nueve, versículos nueve, del doce al dieciséis y del diecinueve
+     *   al veinte.»
      * - Un cántico que hace de salmo (el Magníficat, Isaías 12…) no se proclama
      *   como lectura: «Salmo responsorial, cántico de Isaías, capítulo doce, …».
      *
@@ -117,7 +119,9 @@ object Anuncios {
         val refs = Cita.de(cita)
         if (nombre == "Salmos") {
             val salmo = refs?.primerCapitulo ?: 0
-            return if (salmo > 0) "$t. Salmo ${enLetras(salmo)}." else "$t."
+            if (refs == null || salmo <= 0) return "$t."
+            val versiculos = refs.hablada(conCapitulo = false)
+            return if (versiculos.isBlank()) "$t. Salmo ${enLetras(salmo)}." else "$t. Salmo ${enLetras(salmo)}, $versiculos."
         }
         val donde = refs?.hablada()?.let { ", $it" } ?: ""
         if (t.startsWith("Salmo responsorial")) return "$t, cántico de ${nombreHablado(nombre)}$donde."
@@ -145,8 +149,12 @@ object Anuncios {
 
         val primerCapitulo: Int get() = grupos.firstOrNull()?.capitulo ?: 0
 
-        /** «capítulo siete, versículos del nueve al diez y del trece al catorce» */
-        fun hablada(): String = grupos.joinToString(", y ") { g ->
+        /**
+         * «capítulo siete, versículos del nueve al diez y del trece al catorce».
+         * Con [conCapitulo] en `false` omite el «capítulo N, » (para el salmo
+         * responsorial, cuyo número ya se dice aparte): «versículos del nueve al diez…».
+         */
+        fun hablada(conCapitulo: Boolean = true): String = grupos.joinToString(", y ") { g ->
             val sola = g.partes.singleOrNull()
             val versiculos = when {
                 sola != null && sola.hastaCapitulo > 0 ->
@@ -160,7 +168,7 @@ object Anuncios {
                     }
                 })
             }
-            if (g.capitulo > 0) "capítulo ${enLetras(g.capitulo)}, $versiculos" else versiculos
+            if (conCapitulo && g.capitulo > 0) "capítulo ${enLetras(g.capitulo)}, $versiculos" else versiculos
         }
 
         private fun lista(xs: List<String>): String =

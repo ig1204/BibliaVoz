@@ -6,28 +6,13 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 
-/** Problemas del motor de voz que la interfaz necesita explicar al usuario. */
-enum class EngineError {
-    /** No hay ningún motor de texto-a-voz instalado en el teléfono. */
-    NO_ENGINE,
-
-    /** Hay motor, pero le falta la voz en español. */
-    MISSING_SPANISH,
-
-    /** El motor existe pero no arrancó. */
-    INIT_FAILED,
-}
-
 /** Todo lo que la interfaz necesita saber sobre la lectura en voz alta. */
 data class PlayerState(
-    val engineReady: Boolean = false,
-    val engineError: EngineError? = null,
     val isPlaying: Boolean = false,
     val position: Position = Position(),
     val bookName: String = "",
     val verseCount: Int = 0,
     val speechRate: Float = 1f,
-    val pitch: Float = 1f,
     /** Momento (millis del reloj del sistema) en que el temporizador apagará la voz; 0 = sin temporizador. */
     val sleepTimerEndsAt: Long = 0L,
     /** `true` mientras se están leyendo las lecturas de la misa. */

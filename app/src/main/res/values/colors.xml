@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <color name="window_background">#FBF7F0</color>
-    <color name="ic_launcher_background">#7A5230</color>
+    <!-- Crema del icono «Santa Biblia» (fondo del sello). -->
+    <color name="ic_launcher_background">#FFFBEB</color>
 </resources>

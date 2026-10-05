@@ -10,7 +10,7 @@
 #   ... generar-audio.ps1 --contar                (solo cuenta lo que falta)
 #
 # La clave de Fish Audio se lee de E:\PG\BibliaVoz-IA\clave-fish.txt
-# El audio queda en E:\PG\BibliaVoz-IA\audio  (se puede cortar y volver a lanzar).
+# El audio queda en E:\PG\BibliaVoz-IA\audio-mx  (se puede cortar y volver a lanzar).
 $ErrorActionPreference = 'Continue'
 
 $env:JAVA_HOME = 'E:\PG\.toolchain\jdk\jdk-17.0.20.1+1'

@@ -172,6 +172,10 @@ class AudioLocal(context: Context) {
     }
 
     private fun leerManifiesto(raiz: JSONObject, carpeta: File?, presentes: Set<String>): Origen {
+        // Audio grabado con otra versión del texto (otra Biblia o leccionario) no
+        // sirve: diría algo distinto de lo que muestra la pantalla. Se descarta
+        // entero. Ver com.bibliavoz.app.voz.TextosIa.
+        if (raiz.optString("textos") != com.bibliavoz.app.voz.TextosIa.ID) return Origen()
         val caps = leerGrupo(raiz.optJSONObject("capitulos"), carpeta)
         val lecs = leerGrupo(raiz.optJSONObject("lecturas"), carpeta)
         // Con todo presente vale el tamaño que declara el manifiesto; si falta

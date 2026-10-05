@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">Biblia en Voz</string>
-    <string name="translation_name">Reina-Valera 1909</string>
+    <string name="translation_name">Santa Biblia Libre</string>
 
     <string name="channel_playback">Lectura en voz alta</string>
     <string name="channel_playback_desc">Controles de la lectura mientras la app está en segundo plano</string>

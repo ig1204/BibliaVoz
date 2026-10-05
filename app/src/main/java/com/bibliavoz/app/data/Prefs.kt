@@ -9,6 +9,10 @@ class Prefs private constructor(context: Context) {
     private val sp: SharedPreferences =
         context.applicationContext.getSharedPreferences("biblia_voz", Context.MODE_PRIVATE)
 
+    init {
+        migrarNumeracionSbl()
+    }
+
     var lastPosition: Position
         get() = Position(
             book = sp.getInt(KEY_BOOK, 1),
@@ -28,11 +32,6 @@ class Prefs private constructor(context: Context) {
         get() = sp.getFloat(KEY_RATE, 1.0f).coerceIn(MIN_RATE, MAX_RATE)
         set(value) { sp.edit().putFloat(KEY_RATE, value.coerceIn(MIN_RATE, MAX_RATE)).apply() }
 
-    /** Tono de la voz. 1.0 = normal. */
-    var pitch: Float
-        get() = sp.getFloat(KEY_PITCH, 1.0f).coerceIn(MIN_PITCH, MAX_PITCH)
-        set(value) { sp.edit().putFloat(KEY_PITCH, value.coerceIn(MIN_PITCH, MAX_PITCH)).apply() }
-
     /** Multiplicador del tamaño de letra en el lector. */
     var fontScale: Float
         get() = sp.getFloat(KEY_FONT, 1.0f).coerceIn(0.8f, 2.0f)
@@ -43,11 +42,6 @@ class Prefs private constructor(context: Context) {
         get() = sp.getBoolean(KEY_ANNOUNCE_CHAPTER, true)
         set(value) { sp.edit().putBoolean(KEY_ANNOUNCE_CHAPTER, value).apply() }
 
-    /** Leer en voz alta el número de cada versículo. */
-    var announceVerseNumbers: Boolean
-        get() = sp.getBoolean(KEY_ANNOUNCE_VERSE, false)
-        set(value) { sp.edit().putBoolean(KEY_ANNOUNCE_VERSE, value).apply() }
-
     /** Encadenar automáticamente con el capítulo siguiente. */
     var autoContinue: Boolean
         get() = sp.getBoolean(KEY_AUTO_CONTINUE, true)
@@ -57,26 +51,6 @@ class Prefs private constructor(context: Context) {
     var keepScreenOn: Boolean
         get() = sp.getBoolean(KEY_KEEP_SCREEN_ON, false)
         set(value) { sp.edit().putBoolean(KEY_KEEP_SCREEN_ON, value).apply() }
-
-    /** Paquete del motor de texto a voz elegido. `null` = el que traiga el sistema. */
-    var ttsEngine: String?
-        get() = sp.getString(KEY_ENGINE, null)
-        set(value) { sp.edit().putString(KEY_ENGINE, value).apply() }
-
-    /** Nombre técnico de la voz elegida (Voice.getName()). `null` = la mejor automática. */
-    var voiceName: String?
-        get() = sp.getString(KEY_VOICE, null)
-        set(value) { sp.edit().putString(KEY_VOICE, value).apply() }
-
-    /** Versión de la Biblia elegida para la lectura libre. */
-    var versionId: String
-        get() = sp.getString(KEY_VERSION, "rv1909") ?: "rv1909"
-        set(value) { sp.edit().putString(KEY_VERSION, value).apply() }
-
-    /** Permitir voces que necesitan internet (suelen sonar mejor). */
-    var allowNetworkVoices: Boolean
-        get() = sp.getBoolean(KEY_NETWORK_VOICES, false)
-        set(value) { sp.edit().putBoolean(KEY_NETWORK_VOICES, value).apply() }
 
     /** 0 = seguir al sistema, 1 = claro, 2 = oscuro. */
     var themeMode: Int
@@ -89,36 +63,48 @@ class Prefs private constructor(context: Context) {
         set(value) { sp.edit().putBoolean(KEY_FIRST_RUN, value).apply() }
 
     /**
-     * Leer con la voz IA grabada donde haya audio instalado. Donde no lo hay,
-     * lee la voz del teléfono igual que siempre.
+     * Una sola vez: pasa la posición guardada de la numeración de la Reina-Valera
+     * (66 libros) a la de la Santa Biblia Libre (73 libros, con los
+     * deuterocanónicos intercalados). Quien actualiza desde la 2.2 tiene el libro
+     * en numeración RV; sin esto, «Continuar escuchando» apuntaría a otro libro
+     * (p. ej. Juan RV 43 → Sofonías SBL 43). La marca evita aplicarlo dos veces.
      */
-    var vozIaActiva: Boolean
-        get() = sp.getBoolean(KEY_IA_ACTIVA, true)
-        set(value) { sp.edit().putBoolean(KEY_IA_ACTIVA, value).apply() }
+    private fun migrarNumeracionSbl() {
+        if (sp.getString(KEY_NUMERACION, null) == NUM_SBL) return
+        val rv = sp.getInt(KEY_BOOK, 0)
+        val sbl = rvASbl(rv)
+        sp.edit().apply {
+            if (sbl != rv) putInt(KEY_BOOK, sbl)
+            putString(KEY_NUMERACION, NUM_SBL)
+        }.apply()
+    }
+
+    /** Número de libro: Reina-Valera (66) → Santa Biblia Libre (73). */
+    private fun rvASbl(rv: Int): Int = when (rv) {
+        in 1..16 -> rv
+        17 -> 19
+        in 18..22 -> rv + 4
+        in 23..25 -> rv + 6
+        in 26..66 -> rv + 7
+        else -> rv
+    }
 
     companion object {
         const val MIN_RATE = 0.5f
         const val MAX_RATE = 2.5f
-        const val MIN_PITCH = 0.5f
-        const val MAX_PITCH = 1.8f
 
         private const val KEY_BOOK = "last_book"
         private const val KEY_CHAPTER = "last_chapter"
         private const val KEY_VERSE = "last_verse"
         private const val KEY_RATE = "speech_rate"
-        private const val KEY_PITCH = "speech_pitch"
         private const val KEY_FONT = "font_scale"
         private const val KEY_ANNOUNCE_CHAPTER = "announce_chapter"
-        private const val KEY_ANNOUNCE_VERSE = "announce_verse"
         private const val KEY_AUTO_CONTINUE = "auto_continue"
         private const val KEY_KEEP_SCREEN_ON = "keep_screen_on"
         private const val KEY_THEME = "theme_mode"
-        private const val KEY_ENGINE = "tts_engine"
-        private const val KEY_VOICE = "tts_voice"
-        private const val KEY_NETWORK_VOICES = "allow_network_voices"
-        private const val KEY_VERSION = "bible_version"
         private const val KEY_FIRST_RUN = "first_run"
-        private const val KEY_IA_ACTIVA = "voz_ia_activa"
+        private const val KEY_NUMERACION = "numeracion"
+        private const val NUM_SBL = "sbl"
 
         @Volatile
         private var instance: Prefs? = null

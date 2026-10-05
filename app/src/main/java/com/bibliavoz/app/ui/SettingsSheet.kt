@@ -12,7 +12,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.AutoAwesome
-import androidx.compose.material.icons.rounded.RecordVoiceOver
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
@@ -41,7 +40,6 @@ import com.bibliavoz.app.player.PlaybackService
 fun SettingsSheet(
     viewModel: MainViewModel,
     onDismiss: () -> Unit,
-    onOpenVoicePicker: () -> Unit,
     onOpenVozIa: () -> Unit,
 ) {
     val context = LocalContext.current
@@ -62,7 +60,6 @@ fun SettingsSheet(
             EntryCard(
                 title = "Voz IA · ${vozIa.voz}",
                 subtitle = when {
-                    !vozIa.activa -> "Desactivada: lee la voz del teléfono"
                     !vozIa.revisado -> "Voz humana con emociones, sin internet"
                     !vozIa.hayAudio -> "Voz humana con emociones. Aún no hay audio instalado"
                     else -> "${vozIa.capitulos} capítulos y ${vozIa.lecturas} lecturas, sin internet"
@@ -70,18 +67,6 @@ fun SettingsSheet(
                 icon = Icons.Rounded.AutoAwesome,
                 highlighted = true,
                 onClick = onOpenVozIa,
-            )
-
-            EntryCard(
-                title = "Voz del teléfono",
-                subtitle = if (vozIa.activa && vozIa.hayAudio) {
-                    "Para lo que no tiene voz IA grabada"
-                } else {
-                    "Escucha las voces del teléfono y quédate con la que prefieras"
-                },
-                icon = Icons.Rounded.RecordVoiceOver,
-                highlighted = false,
-                onClick = onOpenVoicePicker,
             )
 
             SliderSetting(
@@ -96,31 +81,6 @@ fun SettingsSheet(
                 onValueChangeFinished = {
                     PlaybackService.setSpeechRate(context, viewModel.settings.value.speechRate)
                 },
-            )
-
-            SliderSetting(
-                label = "Tono de voz",
-                subtitle = "Solo la voz del teléfono",
-                value = settings.pitch,
-                valueLabel = String.format("%.2f", settings.pitch),
-                range = Prefs.MIN_PITCH..Prefs.MAX_PITCH,
-                steps = 12,
-                onValueChange = { viewModel.onPitchChanged(it) },
-                onValueChangeFinished = { PlaybackService.setPitch(context, viewModel.settings.value.pitch) },
-            )
-
-            SwitchSetting(
-                title = "Anunciar el capítulo",
-                subtitle = "Dice «Génesis, capítulo 1» al empezar; la voz IA lo dice siempre",
-                checked = settings.announceChapter,
-                onCheckedChange = viewModel::setAnnounceChapter,
-            )
-
-            SwitchSetting(
-                title = "Leer el número de versículo",
-                subtitle = "Dice «Versículo 3» antes de cada uno; solo la voz del teléfono",
-                checked = settings.announceVerseNumbers,
-                onCheckedChange = viewModel::setAnnounceVerseNumbers,
             )
 
             SwitchSetting(
@@ -165,8 +125,9 @@ fun SettingsSheet(
 
             HorizontalDivider(Modifier.padding(vertical = 16.dp))
             Text(
-                text = "Texto: ${viewModel.translationName} · dominio público.\n" +
-                    "Las dos voces funcionan sin conexión a internet. " +
+                text = "Texto: ${viewModel.translationName} (eBible.org), dominio público. " +
+                    "Adaptación para México: «Yahvé» se lee «el Señor».\n" +
+                    "La voz funciona sin conexión a internet. " +
                     "Voz IA: Built with Fish Audio.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,

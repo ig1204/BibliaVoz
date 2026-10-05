@@ -13,17 +13,6 @@
     -->
 
     <!--
-      Obligatorio desde Android 11 (API 30): sin esta declaración el sistema
-      oculta los motores de texto-a-voz instalados y TextToSpeech no encuentra
-      ninguno, así que la app se quedaría muda.
-    -->
-    <queries>
-        <intent>
-            <action android:name="android.intent.action.TTS_SERVICE" />
-        </intent>
-    </queries>
-
-    <!--
       La copia de seguridad de Google guarda la posición y los ajustes, pero no
       la carpeta voz-ia: con sus ~3 GB la copia pasaría del límite de 25 MB por
       app y Android dejaría de guardar también lo demás. backup_rules vale para

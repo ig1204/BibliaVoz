@@ -101,6 +101,26 @@ class CalendarioLiturgicoTest {
         assertEquals("La Natividad del Señor · Ciclo B", CalendarioLiturgico.descripcion(LocalDate.of(2026, 12, 25)))
     }
 
+    @Test
+    fun `el Corpus mexicano es el jueves despues de la Trinidad`() {
+        // En México el Corpus se celebra el jueves después de la Trinidad
+        // (pascua+60) y el domingo siguiente vuelve a ser ordinario, no como en
+        // EE. UU. (donde Corpus cae el domingo, pascua+63).
+        // 2026: Corpus el jueves 4 de junio; el domingo 7 es el X domingo (A).
+        assertEquals("CORPUS-A", CalendarioLiturgico.claveTemporal(LocalDate.of(2026, 6, 4)))
+        assertEquals("ORD-10-0-A", CalendarioLiturgico.claveTemporal(LocalDate.of(2026, 6, 7)))
+        // 2027: Corpus el jueves 27 de mayo; el domingo 30 es el IX domingo (B).
+        assertEquals("CORPUS-B", CalendarioLiturgico.claveTemporal(LocalDate.of(2027, 5, 27)))
+        assertEquals("ORD-9-0-B", CalendarioLiturgico.claveTemporal(LocalDate.of(2027, 5, 30)))
+    }
+
+    @Test
+    fun `Jesucristo Sumo y Eterno Sacerdote cae el jueves despues de Pentecostes`() {
+        // Fiesta propia de México: jueves después de Pentecostés (pascua+53).
+        assertEquals(CalendarioLiturgico.SUMO_SACERDOTE, CalendarioLiturgico.memoriaMovil(LocalDate.of(2027, 5, 20)))
+        assertEquals(CalendarioLiturgico.MADRE_DE_LA_IGLESIA, CalendarioLiturgico.memoriaMovil(LocalDate.of(2027, 5, 17)))
+    }
+
     // ------------------------------------------------------------ cobertura
 
     /**

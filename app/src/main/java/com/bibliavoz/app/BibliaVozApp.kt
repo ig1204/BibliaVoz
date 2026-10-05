@@ -22,7 +22,6 @@ class BibliaVozApp : Application() {
             it.copy(
                 position = prefs.lastPosition,
                 speechRate = prefs.speechRate,
-                pitch = prefs.pitch,
             )
         }
 

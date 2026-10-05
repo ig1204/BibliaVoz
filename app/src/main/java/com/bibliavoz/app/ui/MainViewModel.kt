@@ -12,7 +12,6 @@ import com.bibliavoz.app.liturgia.Leccionario
 import com.bibliavoz.app.liturgia.LecturaConTexto
 import com.bibliavoz.app.player.AudioLocal
 import com.bibliavoz.app.player.PlaybackService
-import com.bibliavoz.app.player.VoiceCatalog
 import com.bibliavoz.app.voz.VocesIa
 import java.time.LocalDate
 import kotlinx.coroutines.Dispatchers
@@ -27,10 +26,8 @@ import kotlinx.coroutines.withContext
 /** Ajustes que la interfaz necesita observar en vivo. */
 data class SettingsState(
     val speechRate: Float = 1f,
-    val pitch: Float = 1f,
     val fontScale: Float = 1f,
     val announceChapter: Boolean = true,
-    val announceVerseNumbers: Boolean = false,
     val autoContinue: Boolean = true,
     val keepScreenOn: Boolean = false,
     val themeMode: Int = 0,
@@ -38,7 +35,6 @@ data class SettingsState(
 
 /** Lo que la pantalla de la voz IA necesita mostrar: qué audio grabado hay en el teléfono. */
 data class VozIaState(
-    val activa: Boolean = true,
     val capitulos: Int = 0,
     val lecturas: Int = 0,
     val bytes: Long = 0L,
@@ -58,22 +54,10 @@ data class VozIaState(
         get() = capitulos < capitulosDeclarados || lecturas < lecturasDeclaradas
 }
 
-/** Lo que la pantalla de selección de voz necesita mostrar. */
-data class VoiceCatalogState(
-    val loading: Boolean = true,
-    val engineWorks: Boolean = true,
-    val engines: List<VoiceCatalog.EngineOption> = emptyList(),
-    val voices: List<VoiceCatalog.VoiceOption> = emptyList(),
-    val selectedEngine: String? = null,
-    val selectedVoice: String? = null,
-    val allowNetwork: Boolean = false,
-)
-
 class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     private val repo = BibleRepository.get(app)
     private val prefs = Prefs.get(app)
-    private val catalog = VoiceCatalog(app)
 
     private val _books = MutableStateFlow<List<BookInfo>>(emptyList())
     val books: StateFlow<List<BookInfo>> = _books.asStateFlow()
@@ -99,10 +83,8 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     private fun readSettings() = SettingsState(
         speechRate = prefs.speechRate,
-        pitch = prefs.pitch,
         fontScale = prefs.fontScale,
         announceChapter = prefs.announceChapter,
-        announceVerseNumbers = prefs.announceVerseNumbers,
         autoContinue = prefs.autoContinue,
         keepScreenOn = prefs.keepScreenOn,
         themeMode = prefs.themeMode,
@@ -116,7 +98,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     fun nextChapter(book: Int, chapterNumber: Int): Pair<Int, Int>? = when {
         chapterNumber < chapterCount(book) -> book to (chapterNumber + 1)
-        book < 66 -> (book + 1) to 1
+        book < (_books.value.lastOrNull()?.number ?: 73) -> (book + 1) to 1
         else -> null
     }
 
@@ -164,11 +146,6 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         _settings.value = _settings.value.copy(announceChapter = value)
     }
 
-    fun setAnnounceVerseNumbers(value: Boolean) {
-        prefs.announceVerseNumbers = value
-        _settings.value = _settings.value.copy(announceVerseNumbers = value)
-    }
-
     fun setAutoContinue(value: Boolean) {
         prefs.autoContinue = value
         _settings.value = _settings.value.copy(autoContinue = value)
@@ -189,68 +166,11 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         _settings.value = _settings.value.copy(speechRate = value)
     }
 
-    fun onPitchChanged(value: Float) {
-        _settings.value = _settings.value.copy(pitch = value)
-    }
-
-    // ------------------------------------------------------------ voces
-
-    private val _voiceCatalog = MutableStateFlow(VoiceCatalogState())
-    val voiceCatalog: StateFlow<VoiceCatalogState> = _voiceCatalog.asStateFlow()
-
-    /** Arranca el motor y lee el catálogo. El aviso de listo llega en otro hilo. */
-    fun loadVoiceCatalog() {
-        _voiceCatalog.value = _voiceCatalog.value.copy(loading = true)
-        catalog.start(prefs.ttsEngine) { ok -> publishCatalog(ok) }
-    }
-
-    private fun publishCatalog(engineWorks: Boolean) {
-        val allowNetwork = prefs.allowNetworkVoices
-        _voiceCatalog.value = VoiceCatalogState(
-            loading = false,
-            engineWorks = engineWorks,
-            engines = if (engineWorks) catalog.engines() else emptyList(),
-            voices = if (engineWorks) catalog.spanishVoices(allowNetwork) else emptyList(),
-            selectedEngine = prefs.ttsEngine,
-            selectedVoice = prefs.voiceName,
-            allowNetwork = allowNetwork,
-        )
-    }
-
-    fun previewVoice(voiceName: String) {
-        catalog.preview(voiceName, prefs.speechRate, prefs.pitch)
-    }
-
-    fun stopPreview() {
-        catalog.stopPreview()
-    }
-
-    /** Solo refleja la elección: quien la guarda y la aplica es [PlaybackService]. */
-    fun onVoiceSelected(voiceName: String?) {
-        _voiceCatalog.value = _voiceCatalog.value.copy(selectedVoice = voiceName)
-    }
-
-    fun onEngineSelected(enginePackage: String?) {
-        _voiceCatalog.value = _voiceCatalog.value.copy(
-            selectedEngine = enginePackage,
-            selectedVoice = null,
-            loading = true,
-        )
-        catalog.start(enginePackage) { ok -> publishCatalog(ok) }
-    }
-
-    fun onAllowNetworkChanged(allow: Boolean) {
-        _voiceCatalog.value = _voiceCatalog.value.copy(
-            allowNetwork = allow,
-            voices = catalog.spanishVoices(allow),
-        )
-    }
-
     // ------------------------------------------------------------ voz IA
 
     private val audioLocal = AudioLocal(app)
 
-    private val _vozIa = MutableStateFlow(VozIaState(activa = prefs.vozIaActiva))
+    private val _vozIa = MutableStateFlow(VozIaState())
     val vozIa: StateFlow<VozIaState> = _vozIa.asStateFlow()
 
     init {
@@ -266,7 +186,6 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             }
             _vozIa.update {
                 it.copy(
-                    activa = prefs.vozIaActiva,
                     capitulos = resumen.capitulos,
                     lecturas = resumen.lecturas,
                     bytes = resumen.bytes,
@@ -280,13 +199,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    fun setVozIaActiva(activa: Boolean) {
-        prefs.vozIaActiva = activa
-        _vozIa.update { it.copy(activa = activa) }
-        PlaybackService.vozIaCambio(getApplication<Application>())
-    }
-
-    /** Capítulos de la Reina-Valera en total, para decir cuántos tienen voz IA. */
+    /** Capítulos de la Biblia en total, para decir cuántos tienen voz IA. */
     val totalCapitulos: Int get() = _books.value.sumOf { it.chapterCount }
 
     // ------------------------------------------------------------ lecturas de la misa
@@ -325,7 +238,6 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     override fun onCleared() {
-        catalog.shutdown()
         super.onCleared()
     }
 }

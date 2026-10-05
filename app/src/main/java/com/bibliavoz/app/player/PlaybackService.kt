@@ -14,13 +14,10 @@ import android.media.AudioAttributes
 import android.media.AudioFocusRequest
 import android.media.AudioManager
 import android.os.Build
-import android.os.Bundle
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
 import android.os.PowerManager
-import android.speech.tts.TextToSpeech
-import android.speech.tts.UtteranceProgressListener
 import android.support.v4.media.MediaMetadataCompat
 import android.support.v4.media.session.MediaSessionCompat
 import android.support.v4.media.session.PlaybackStateCompat
@@ -45,25 +42,19 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import java.util.Locale
 
 /**
- * Servicio en primer plano que lee la Biblia en voz alta.
+ * Servicio en primer plano que lee la Biblia en voz alta con la voz IA grabada.
  *
  * Vive fuera de la Activity a propósito: así la lectura continúa con la
  * pantalla apagada o con la app en segundo plano, que es justamente para lo
  * que sirve la aplicación.
  *
- * Encadenado: se habla un versículo a la vez y, cuando el motor avisa que
- * terminó ([UtteranceProgressListener.onDone]), se avanza al siguiente. Al
- * acabar el capítulo sigue con el siguiente, y al acabar el libro, con el
- * siguiente libro.
- *
- * Dos voces: la **voz IA** ya grabada e instalada en el teléfono ([AudioLocal],
- * [HablanteIa]) para los capítulos que la tengan, y el motor de texto a voz del
- * teléfono para el resto. Ninguna de las dos necesita internet. Si un archivo
- * de la voz IA no se puede reproducir, la lectura sigue con la del teléfono
- * desde el mismo versículo, sin quedarse muda.
+ * La **voz IA** ([AudioLocal], [HablanteIa]) viene grabada dentro del APK y no
+ * necesita internet. Cada tramo es una toma de audio; al terminar uno se avanza
+ * al siguiente, luego al capítulo siguiente y luego al libro siguiente. Ya no se
+ * usa el motor de texto a voz del teléfono: si un pasaje no tuviera audio, la
+ * lectura lo salta y avisa, en vez de leerlo con otra voz.
  */
 class PlaybackService : Service() {
 
@@ -73,7 +64,6 @@ class PlaybackService : Service() {
     private lateinit var mediaSession: MediaSessionCompat
     private lateinit var notificationManager: NotificationManagerCompat
 
-    private var tts: TextToSpeech? = null
     private var focusRequest: AudioFocusRequest? = null
     private var wakeLock: PowerManager.WakeLock? = null
 
@@ -83,13 +73,6 @@ class PlaybackService : Service() {
     private var currentChapter: Chapter? = null
     private var position = Position()
     private var playing = false
-    private var engineReady = false
-
-    /**
-     * El motor ya respondió y no puede hablar. Distinto de `!engineReady`, que
-     * también es cierto mientras el motor todavía está arrancando.
-     */
-    private var engineFailed = false
 
     /** Id de la frase que se está pronunciando ahora mismo. */
     private var activeUtteranceId: String? = null
@@ -125,10 +108,13 @@ class PlaybackService : Service() {
     private var iaSonando = false
 
     /**
-     * Archivos de la voz IA que fallaron: hasta el próximo ▶ esos tramos los lee
-     * la voz del teléfono. Los demás siguen con la voz IA.
+     * Archivos de la voz IA que fallaron dos veces: se saltan hasta el próximo ▶,
+     * para que un archivo dañado no bloquee toda la lectura.
      */
     private val iaFallidos = HashSet<AudioLocal.Fuente>()
+
+    /** Tramos ya reintentados una vez; evita reintentar el mismo en bucle. */
+    private val iaReintentados = HashSet<AudioLocal.Fuente>()
 
     /**
      * Versículo al que se saltó con la voz IA. El audio arranca un poco antes
@@ -136,9 +122,6 @@ class PlaybackService : Service() {
      * progreso no baja el resaltado. -1 = sin salto pendiente.
      */
     private var versoPedidoIa = -1
-
-    /** La lectura espera a que arranque el motor del teléfono para poder seguir. */
-    private var esperandoMotor = false
 
     /** Está registrado el aviso de "se desconectaron los audífonos". */
     private var escuchandoAudifonos = false
@@ -200,7 +183,6 @@ class PlaybackService : Service() {
         scope.launch(Dispatchers.IO) { audioLocal.recargarSiCambio() }
 
         publishState()
-        initTts()
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
@@ -234,50 +216,8 @@ class PlaybackService : Service() {
             ACTION_SET_RATE -> {
                 val rate = intent.getFloatExtra(EXTRA_VALUE, prefs.speechRate)
                 prefs.speechRate = rate
-                applyVoiceSettings()
-                // Reiniciar el versículo actual para que el cambio se oiga ya.
-                // La voz IA no lo necesita: cambia de velocidad sin cortarse.
-                if (playing && !iaSonando) speakCurrentVerse()
-                publishState()
-            }
-            ACTION_SET_PITCH -> {
-                val pitch = intent.getFloatExtra(EXTRA_VALUE, prefs.pitch)
-                prefs.pitch = pitch
-                applyVoiceSettings()
-                if (playing && !iaSonando) speakCurrentVerse()
-                publishState()
-            }
-            ACTION_SET_VOICE -> {
-                val engineChanged = intent.getBooleanExtra(EXTRA_ENGINE_CHANGED, false)
-                if (engineChanged) {
-                    // Cambiar de motor obliga a crear otro TextToSpeech: la
-                    // instancia actual está atada al paquete con el que nació.
-                    stopSpeaking()
-                    runCatching { tts?.shutdown() }
-                    tts = null
-                    engineReady = false
-                    engineFailed = false
-                    // Si estaba sonando, se sigue en cuanto responda el motor nuevo.
-                    esperandoMotor = playing
-                    initTts()
-                } else {
-                    tts?.let { applySelectedVoice(it) }
-                    if (playing && !iaSonando) speakCurrentVerse()
-                }
-                publishState()
-            }
-            ACTION_VOZ_IA -> {
-                // Se activó o desactivó la voz IA: si está sonando, el cambio se
-                // oye ya, desde el versículo actual.
-                iaFallidos.clear()
-                PlayerBus.update { it.copy(avisoVoz = null) }
-                if (playing) {
-                    stopSpeaking()
-                    speakCurrentVerse()
-                } else {
-                    // Un tramo IA en pausa no debe reanudarse con la voz IA apagada.
-                    stopSpeaking()
-                }
+                // La voz IA cambia de velocidad en caliente, sin cortarse.
+                vozIa.velocidad(rate)
                 publishState()
             }
             ACTION_PLAY_LECTURAS -> {
@@ -325,11 +265,6 @@ class PlaybackService : Service() {
         dejarDeEscucharAudifonos()
         releaseWakeLock()
         abandonAudioFocus()
-        tts?.let {
-            runCatching { it.stop() }
-            runCatching { it.shutdown() }
-        }
-        tts = null
         vozIa.liberar()
         mediaSession.isActive = false
         mediaSession.release()
@@ -348,218 +283,13 @@ class PlaybackService : Service() {
         super.onTaskRemoved(rootIntent)
     }
 
-    // ---------------------------------------------------------------- motor de voz
-
-    private fun initTts() {
-        val listener = TextToSpeech.OnInitListener { status -> handler.post { onTtsInit(status) } }
-        val selected = prefs.ttsEngine
-        tts = if (selected.isNullOrBlank()) {
-            TextToSpeech(applicationContext, listener)
-        } else {
-            // Si el motor elegido ya no está instalado, TextToSpeech devuelve
-            // ERROR en onInit y se cae al aviso de "sin motor" de la interfaz.
-            TextToSpeech(applicationContext, listener, selected)
-        }
-    }
-
-    /** Aplica la voz concreta que eligió el usuario, si sigue existiendo. */
-    private fun applySelectedVoice(engine: TextToSpeech) {
-        val wanted = prefs.voiceName
-        val voices = runCatching { engine.voices }.getOrNull().orEmpty()
-        val chosen = when {
-            !wanted.isNullOrBlank() -> voices.firstOrNull { it.name == wanted }
-            else -> null
-        } ?: bestSpanishVoice(voices)
-
-        if (chosen != null) runCatching { engine.setVoice(chosen) }
-    }
-
-    /**
-     * Mejor voz española disponible: primero la de más calidad y, a igualdad,
-     * la que no necesite internet, porque la app está pensada para usarse sin datos.
-     */
-    private fun bestSpanishVoice(voices: Collection<android.speech.tts.Voice>): android.speech.tts.Voice? =
-        voices.asSequence()
-            .filter { it.locale.language.equals("es", ignoreCase = true) }
-            .filterNot { it.features?.contains(TextToSpeech.Engine.KEY_FEATURE_NOT_INSTALLED) == true }
-            .filter { prefs.allowNetworkVoices || !it.isNetworkConnectionRequired }
-            .sortedWith(
-                compareByDescending<android.speech.tts.Voice> { it.quality }
-                    .thenBy { it.isNetworkConnectionRequired }
-            )
-            .firstOrNull()
-
-    private fun onTtsInit(status: Int) {
-        val engine = tts
-        if (status != TextToSpeech.SUCCESS || engine == null) {
-            engineReady = false
-            engineFailed = true
-            PlayerBus.update {
-                it.copy(engineReady = false, engineError = EngineError.NO_ENGINE)
-            }
-            // El usuario pudo pulsar play antes de saber que el motor falló:
-            // hay que soltar wake lock y foco de audio, no solo la interfaz.
-            // Si suena la voz IA, no hace falta el motor del teléfono para seguir.
-            if (playing && !iaSonando && sinVozIaQueCubra()) pause()
-            return
-        }
-
-        val spanishResult = selectSpanishVoice(engine)
-        engineReady = spanishResult != null
-        engineFailed = !engineReady
-
-        engine.setAudioAttributes(
-            AudioAttributes.Builder()
-                .setUsage(AudioAttributes.USAGE_MEDIA)
-                .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
-                .build()
-        )
-        engine.setOnUtteranceProgressListener(utteranceListener)
-        applySelectedVoice(engine)
-        applyVoiceSettings()
-
-        PlayerBus.update {
-            it.copy(
-                engineReady = engineReady,
-                engineError = if (engineReady) null else EngineError.MISSING_SPANISH,
-            )
-        }
-
-        // Si el usuario pidió reproducir antes de que el motor estuviera listo.
-        // Con la voz IA la lectura ya arrancó sin esperarlo.
-        if (playing && !iaSonando) {
-            if (engineReady) speakCurrentVerse() else if (sinVozIaQueCubra()) pause()
-        }
-    }
-
-    /**
-     * El motor del teléfono no puede hablar: ¿hay que parar ya? No, si la voz IA
-     * está activada y la lectura todavía no llegó a pedir el motor (el capítulo
-     * se está cargando y quizá tenga voz IA). En ese caso decide
-     * speakCurrentVerse() al terminar la carga: si no hay voz IA, pausa.
-     */
-    private fun sinVozIaQueCubra(): Boolean = esperandoMotor || !prefs.vozIaActiva
-
-    /** Prueba variantes de español, de la más cercana a México a la más genérica. */
-    private fun selectSpanishVoice(engine: TextToSpeech): Locale? {
-        val candidates = listOf(
-            Locale("es", "MX"),
-            Locale("es", "US"),
-            Locale("es", "419"),
-            Locale("es", "ES"),
-            Locale("es"),
-        )
-        for (locale in candidates) {
-            val result = runCatching { engine.setLanguage(locale) }.getOrDefault(
-                TextToSpeech.LANG_NOT_SUPPORTED
-            )
-            if (result != TextToSpeech.LANG_MISSING_DATA &&
-                result != TextToSpeech.LANG_NOT_SUPPORTED
-            ) {
-                return locale
-            }
-        }
-        return null
-    }
-
-    private fun applyVoiceSettings() {
-        tts?.let { engine ->
-            engine.setSpeechRate(prefs.speechRate)
-            engine.setPitch(prefs.pitch)
-        }
-        // La voz IA solo cambia de velocidad: el tono deformaría la voz grabada.
-        vozIa.velocidad(prefs.speechRate)
-    }
-
-    private val utteranceListener = object : UtteranceProgressListener() {
-        override fun onStart(utteranceId: String?) = Unit
-
-        override fun onDone(utteranceId: String?) {
-            // Llega en un hilo del binder: hay que volver al hilo principal.
-            handler.post {
-                if (utteranceId != null && utteranceId == activeUtteranceId && playing) {
-                    // Única señal fiable de que el motor sí está sintetizando.
-                    consecutiveErrors = 0
-                    advanceAfterVerse()
-                }
-            }
-        }
-
-        @Deprecated("Reemplazado por onError(String, Int)", ReplaceWith(""))
-        override fun onError(utteranceId: String?) {
-            handler.post { handleUtteranceError(utteranceId) }
-        }
-
-        override fun onError(utteranceId: String?, errorCode: Int) {
-            handler.post { handleUtteranceError(utteranceId) }
-        }
-
-        override fun onStop(utteranceId: String?, interrupted: Boolean) = Unit
-
-        /**
-         * El motor avisa por qué parte del texto va leyendo. Con eso se resalta
-         * el versículo correcto aunque el tramo abarque varios. Existe desde
-         * Android 8; en versiones anteriores los tramos son de un solo versículo.
-         */
-        override fun onRangeStart(utteranceId: String?, start: Int, end: Int, frame: Int) {
-            handler.post {
-                if (utteranceId != activeUtteranceId || !playing) return@post
-                val block = currentBlock ?: return@post
-
-                var index = 0
-                for (i in block.verseStarts.indices) {
-                    if (start >= block.verseStarts[i]) index = i else break
-                }
-                val verse = block.startVerse + index
-                if (verse > block.endVerse) return@post
-                if (enModoLecturas) {
-                    // El tramo es de la lectura de la misa: se recuerda por dónde
-                    // va para reanudar ahí, sin tocar la posición de la Biblia.
-                    lecturaVerso = verse
-                    return@post
-                }
-                if (verse != position.verse) {
-                    position = position.copy(verse = verse)
-                    savePosition()
-                    publishState()
-                }
-            }
-        }
-    }
-
-    private fun handleUtteranceError(utteranceId: String?) {
-        if (utteranceId != activeUtteranceId) return
-
-        consecutiveErrors++
-        if (consecutiveErrors >= MAX_CONSECUTIVE_ERRORS) {
-            // El motor falla en todos los versículos (voz de red sin conexión,
-            // error de síntesis, motor caído...). Seguir saltando recorrería la
-            // Biblia entera en silencio y borraría la posición del usuario.
-            consecutiveErrors = 0
-            PlayerBus.update { it.copy(engineError = EngineError.INIT_FAILED) }
-            pause()
-            return
-        }
-
-        // Un versículo suelto que falla no debe congelar la lectura: se salta.
-        if (playing) advanceAfterVerse()
-    }
-
     // ---------------------------------------------------------------- reproducción
 
     private fun play() {
         if (playing) return
         // Cada ▶ le da otra oportunidad a la voz IA si un archivo falló.
         iaFallidos.clear()
-        if (engineFailed && !hayVozIa()) {
-            // El motor ya confirmó que no puede hablar: no se toma wake lock ni
-            // foco de audio, ni se deja una notificación de «reproduciendo».
-            // El banner de la interfaz ya explica el porqué.
-            publishState()
-            updateNotification()
-            scheduleIdleStop()
-            return
-        }
+        iaReintentados.clear()
         if (!requestAudioFocus()) return
 
         playing = true
@@ -571,12 +301,21 @@ class PlaybackService : Service() {
         publishState()
         updateNotification()
 
-        // Se relee el manifiesto por si se copió audio nuevo desde la PC. Si el
-        // capítulo no tiene voz IA y el motor del teléfono aún no está listo,
-        // onTtsInit() arrancará la lectura.
+        // Se relee el manifiesto por si se copió audio nuevo desde la PC.
         scope.launch {
             withContext(Dispatchers.IO) { audioLocal.recargarSiCambio() }
-            if (playing) ensureChapterLoaded { speakCurrentVerse() }
+            if (!playing) return@launch
+            val r = audioLocal.resumen
+            if (r.capitulos == 0 && r.lecturas == 0) {
+                // Compilación de prueba (-PsinVozIa) o copia sin el audio: en vez de
+                // quedarse muda con el wake lock tomado, lo dice y para.
+                PlayerBus.update {
+                    it.copy(avisoVoz = "Esta copia de la app no trae la voz IA (compilación de prueba). Instala el APK completo.")
+                }
+                pause()
+                return@launch
+            }
+            ensureChapterLoaded { speakCurrentVerse() }
         }
     }
 
@@ -597,10 +336,6 @@ class PlaybackService : Service() {
         play()
     }
 
-    /** Hay voz IA instalada y activada, aunque quizá no para este capítulo. */
-    private fun hayVozIa(): Boolean =
-        prefs.vozIaActiva && (audioLocal.resumen.capitulos > 0 || audioLocal.resumen.lecturas > 0)
-
     /**
      * @param abandonFocus `false` cuando la pausa la causa una pérdida temporal
      * de foco (una llamada entrante). Hay que conservar el AudioFocusRequest
@@ -610,8 +345,6 @@ class PlaybackService : Service() {
         if (!playing) return
         playing = false
         activeUtteranceId = null
-        esperandoMotor = false
-        runCatching { tts?.stop() }
         // La voz IA se pausa de verdad: al volver sigue en la misma palabra.
         vozIa.pausar()
         releaseWakeLock()
@@ -683,7 +416,6 @@ class PlaybackService : Service() {
         playing = false
         resumeOnFocusGain = false
         activeUtteranceId = null
-        runCatching { tts?.stop() }
         vozIa.detener()
         sleepJob?.cancel()
         sleepJob = null
@@ -708,9 +440,19 @@ class PlaybackService : Service() {
         tramoIa = null
         iaSonando = false
         versoPedidoIa = -1
-        esperandoMotor = false
-        runCatching { tts?.stop() }
         vozIa.detener()
+    }
+
+    /**
+     * No hay audio de la voz IA para lo que toca sonar: avisa, para y suelta los
+     * recursos (wake lock, foco, receptor de audífonos). No se salta en silencio,
+     * que dejaría la Biblia o la misa mudas con «reproduciendo» en la notificación.
+     * Con el APK completo no debería ocurrir; es un seguro para copias incompletas.
+     */
+    private fun sinAudio(que: String) {
+        PlayerBus.update { it.copy(avisoVoz = "$que no tiene audio de la voz IA en esta copia de la app.") }
+        stopSpeaking()
+        pause()
     }
 
     /** Carga el capítulo de [position] si aún no está en memoria, y luego ejecuta [then]. */
@@ -753,7 +495,6 @@ class PlaybackService : Service() {
             return
         }
         if (!playing) return
-        esperandoMotor = false
         // Se renueva el plazo del wake lock en cada tramo: si no, caducaría a
         // las 3 horas de escucha seguida.
         acquireWakeLock()
@@ -766,11 +507,7 @@ class PlaybackService : Service() {
             return
         }
 
-        val tramosIa = if (prefs.vozIaActiva) {
-            audioLocal.capitulo(chapter.bookNumber, chapter.chapterNumber, chapter.verses.size)
-        } else {
-            null
-        }
+        val tramosIa = audioLocal.capitulo(chapter.bookNumber, chapter.chapterNumber, chapter.verses.size)
         val tramo = tramosIa?.firstOrNull { position.verse in it }?.takeIf { it.fuente !in iaFallidos }
         if (tramo != null) {
             hablarConIa("ia-${chapter.bookNumber}-${chapter.chapterNumber}", tramo, position.verse)
@@ -780,106 +517,16 @@ class PlaybackService : Service() {
             return
         }
 
-        iaSonando = false
-        val engine = tts ?: return
-        if (!engineReady) {
-            // Sin motor del teléfono y sin voz IA para este capítulo: no hay con qué
-            // leerlo. Si el motor aún está arrancando, onTtsInit() seguirá.
-            if (engineFailed) pause() else esperandoMotor = true
-            return
-        }
-
-        val block = buildBlock(chapter, position.verse)
-        if (block == null) {
-            advanceAfterVerse()
-            return
-        }
-        currentBlock = block
-
-        val id = "b-${position.book}-${position.chapter}-${block.startVerse}-${utteranceSeq++}"
-        activeUtteranceId = id
-
-        val params = Bundle().apply {
-            putFloat(TextToSpeech.Engine.KEY_PARAM_VOLUME, 1.0f)
-            putString(TextToSpeech.Engine.KEY_PARAM_UTTERANCE_ID, id)
-        }
-
-        // QUEUE_FLUSH descarta lo pendiente: evita que se solapen tramos si el
-        // usuario salta rápido de un sitio a otro.
-        val result = engine.speak(block.text, TextToSpeech.QUEUE_FLUSH, params, id)
-        if (result == TextToSpeech.ERROR) {
-            PlayerBus.update { it.copy(engineError = EngineError.INIT_FAILED) }
-            pause()
-            return
-        }
-
+        // La voz IA es la única. Si un capítulo no tiene audio (no debería: toda la
+        // Biblia va grabada en el APK), se avisa y se pausa, sin saltarlo en silencio.
         savePosition()
-        publishState()
-        updateNotification()
-    }
-
-    /**
-     * Arma el tramo que se pronunciará de corrido a partir de [from].
-     *
-     * Se corta por número de versículos o por longitud, lo que llegue antes, para
-     * que el motor no tarde en empezar a hablar. Si el sistema no sabe avisar por
-     * dónde va leyendo, el tramo se reduce a un solo versículo: sin ese aviso no
-     * se podría resaltar el versículo correcto en la pantalla.
-     */
-    private fun buildBlock(chapter: Chapter, from: Int): SpeechBlock? {
-        val cabecera = if (from == 0 && prefs.announceChapter) {
-            "${chapter.bookName}, capítulo ${chapter.chapterNumber}. "
-        } else {
-            null
-        }
-        return buildBlockFrom(chapter.verses, from, cabecera, prefs.announceVerseNumbers)
-    }
-
-    /**
-     * Arma un tramo hablado a partir de una lista cualquiera de versículos, sea
-     * un capítulo de la Biblia o una lectura de la misa.
-     */
-    private fun buildBlockFrom(
-        verses: List<String>,
-        from: Int,
-        header: String?,
-        numerarVersiculos: Boolean,
-    ): SpeechBlock? {
-        if (from < 0 || from > verses.lastIndex) return null
-
-        val trackable = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
-        val maxVerses = if (trackable && !numerarVersiculos) MAX_VERSES_PER_BLOCK else 1
-
-        val builder = StringBuilder()
-        val starts = ArrayList<Int>()
-
-        if (!header.isNullOrBlank()) builder.append(header)
-
-        var index = from
-        while (index <= verses.lastIndex) {
-            if (index > from) {
-                if (index - from >= maxVerses) break
-                if (builder.length >= MAX_BLOCK_CHARS) break
-                builder.append(' ')
-            }
-            starts.add(builder.length)
-            if (numerarVersiculos) {
-                builder.append("Versículo ").append(index + 1).append(". ")
-            }
-            builder.append(verses[index])
-            index++
-        }
-
-        val max = runCatching { TextToSpeech.getMaxSpeechInputLength() }.getOrDefault(4000)
-        val text = builder.toString().let { if (it.length > max) it.take(max) else it }
-        return SpeechBlock(from, index - 1, text, starts.toIntArray())
+        sinAudio(chapter.reference)
     }
 
     // ---------------------------------------------------------- lecturas de la misa
 
     private fun speakLecturaActual() {
         if (!playing) return
-        esperandoMotor = false
         acquireWakeLock()
 
         val lectura = lecturas.getOrNull(lecturaIndex)
@@ -892,11 +539,7 @@ class PlaybackService : Service() {
             return
         }
 
-        val tramosIa = if (prefs.vozIaActiva) {
-            audioLocal.lectura(lectura.clave, lectura.versiculos.size)
-        } else {
-            null
-        }
+        val tramosIa = audioLocal.lectura(lectura.clave, lectura.versiculos.size)
         val tramo = tramosIa?.firstOrNull { lecturaVerso in it }?.takeIf { it.fuente !in iaFallidos }
         if (tramo != null) {
             hablarConIa("il-$lecturaIndex", tramo, lecturaVerso)
@@ -905,39 +548,8 @@ class PlaybackService : Service() {
             return
         }
 
-        iaSonando = false
-        val engine = tts ?: return
-        if (!engineReady) {
-            if (engineFailed) pause() else esperandoMotor = true
-            return
-        }
-
-        // Al empezar cada lectura se anuncia cuál es y de dónde viene, igual
-        // que se hace en misa antes de proclamarla (y con las mismas palabras
-        // que la voz IA: «Primera lectura del libro del profeta Daniel…»).
-        val cabecera = if (lecturaVerso == 0) "${lectura.anuncio} " else null
-        val block = buildBlockFrom(lectura.versiculos, lecturaVerso, cabecera, false)
-        if (block == null) {
-            avanzarLectura()
-            return
-        }
-        currentBlock = block
-
-        val id = "l-$lecturaIndex-$lecturaVerso-${utteranceSeq++}"
-        activeUtteranceId = id
-        val params = Bundle().apply {
-            putFloat(TextToSpeech.Engine.KEY_PARAM_VOLUME, 1.0f)
-            putString(TextToSpeech.Engine.KEY_PARAM_UTTERANCE_ID, id)
-        }
-
-        val result = engine.speak(block.text, TextToSpeech.QUEUE_FLUSH, params, id)
-        if (result == TextToSpeech.ERROR) {
-            PlayerBus.update { it.copy(engineError = EngineError.INIT_FAILED) }
-            pause()
-            return
-        }
-        publishState()
-        updateNotification()
+        // Si una lectura no tiene audio grabado, se avisa y se pausa.
+        sinAudio(lectura.cita)
     }
 
     private fun avanzarLectura() {
@@ -1014,8 +626,8 @@ class PlaybackService : Service() {
     private fun hablarConIa(prefijo: String, tramo: AudioLocal.Tramo, verso: Int) {
         val id = "$prefijo-${tramo.desde}-${utteranceSeq++}"
         activeUtteranceId = id
-        // advanceAfterVerse() y avanzarLectura() siguen desde currentBlock.endVerse,
-        // igual que con la voz del teléfono.
+        // advanceAfterVerse() y avanzarLectura() siguen desde currentBlock.endVerse:
+        // el tramo ocupa de `desde` a `hasta`, así que al acabar continúa tras él.
         currentBlock = SpeechBlock(tramo.desde, tramo.hasta, "", IntArray(0))
         tramoIa = tramo
         iaSonando = true
@@ -1031,7 +643,9 @@ class PlaybackService : Service() {
 
     private val oyenteIa = object : HablanteIa.Oyente {
         override fun onEmpezo(id: String) {
-            if (id == activeUtteranceId) consecutiveErrors = 0
+            // Los fallos seguidos se ponen a cero cuando un tramo suena ENTERO
+            // (onTermino), no al arrancar: un tramo que empieza y falla a mitad
+            // también tiene que contar para el tope de 3.
         }
 
         override fun onProgreso(id: String, fraccion: Float) {
@@ -1063,26 +677,46 @@ class PlaybackService : Service() {
         }
 
         override fun onTermino(id: String) {
-            if (id == activeUtteranceId && playing) advanceAfterVerse()
+            if (id != activeUtteranceId) return
+            // Un tramo que sonó entero: los fallos seguidos vuelven a cero.
+            consecutiveErrors = 0
+            if (playing) advanceAfterVerse()
         }
 
         override fun onFallo(id: String) {
             if (id != activeUtteranceId) return
-            // Un archivo dañado o a medio copiar: ese tramo sigue con la voz del
-            // teléfono desde el mismo versículo; los demás, con la voz IA. El
-            // archivo que falló se vuelve a probar al pulsar ▶.
-            tramoIa?.let { iaFallidos.add(it.fuente) }
             iaSonando = false
-            tramoIa = null
             versoPedidoIa = -1
             vozIa.detener()
+
+            val fuente = tramoIa?.fuente
+            // Primer fallo del tramo: se reintenta una vez, por si fue un tropiezo
+            // puntual del reproductor. El tramo sigue disponible (aún no en iaFallidos).
+            if (fuente != null && iaReintentados.add(fuente)) {
+                if (playing) speakCurrentVerse()
+                return
+            }
+            // Falló otra vez: se marca para saltarlo y se cuenta como fallo seguido.
+            fuente?.let { iaFallidos.add(it) }
+            tramoIa = null
+            consecutiveErrors++
+            if (consecutiveErrors >= MAX_FALLOS_SEGUIDOS) {
+                consecutiveErrors = 0
+                PlayerBus.update {
+                    it.copy(avisoVoz = "No se pudo reproducir la voz grabada; revisa que la app tenga el audio completo.")
+                }
+                publishState()
+                pause()
+                return
+            }
             PlayerBus.update {
-                it.copy(avisoVoz = "Un tramo de la voz IA no se pudo reproducir; sigo con la voz del teléfono.")
+                it.copy(avisoVoz = "Un tramo de la voz no se pudo reproducir; sigo con el siguiente.")
             }
             publishState()
-            // Si el motor del teléfono no puede hablar, speakCurrentVerse() pausa;
-            // si aún está arrancando, espera a onTtsInit().
-            if (playing) speakCurrentVerse()
+            // Se salta el tramo fallido y se sigue con lo que venga (otro tramo,
+            // capítulo o lectura). El tramo siguiente que suene entero (onTermino)
+            // pondrá a cero los fallos seguidos.
+            if (playing) advanceAfterVerse()
         }
     }
 
@@ -1250,13 +884,11 @@ class PlaybackService : Service() {
         val chapter = currentChapter
         PlayerBus.update {
             it.copy(
-                engineReady = engineReady,
                 isPlaying = playing,
                 position = position,
                 bookName = nombreDelLibro(),
                 verseCount = chapter?.verseCount ?: 0,
                 speechRate = prefs.speechRate,
-                pitch = prefs.pitch,
                 enLecturas = enModoLecturas,
                 lecturaIndex = lecturaIndex,
                 lecturaTitulo = lecturas.getOrNull(lecturaIndex)?.titulo ?: "",
@@ -1568,12 +1200,9 @@ class PlaybackService : Service() {
         const val ACTION_PREV_CHAPTER = "com.bibliavoz.app.action.PREV_CHAPTER"
         const val ACTION_SEEK = "com.bibliavoz.app.action.SEEK"
         const val ACTION_SET_RATE = "com.bibliavoz.app.action.SET_RATE"
-        const val ACTION_SET_PITCH = "com.bibliavoz.app.action.SET_PITCH"
         const val ACTION_SLEEP_TIMER = "com.bibliavoz.app.action.SLEEP_TIMER"
-        const val ACTION_SET_VOICE = "com.bibliavoz.app.action.SET_VOICE"
         const val ACTION_PLAY_LECTURAS = "com.bibliavoz.app.action.PLAY_LECTURAS"
         const val ACTION_SALIR_LECTURAS = "com.bibliavoz.app.action.SALIR_LECTURAS"
-        const val ACTION_VOZ_IA = "com.bibliavoz.app.action.VOZ_IA"
 
         const val EXTRA_BOOK = "book"
         const val EXTRA_CHAPTER = "chapter"
@@ -1581,19 +1210,16 @@ class PlaybackService : Service() {
         const val EXTRA_VALUE = "value"
         const val EXTRA_MINUTES = "minutes"
         const val EXTRA_AUTOPLAY = "autoplay"
-        const val EXTRA_ENGINE_CHANGED = "engine_changed"
         const val EXTRA_LECTURA = "lectura"
         const val EXTRA_DESDE_BIBLIA = "desde_biblia"
 
         private const val CHANNEL_ID = "playback"
         private const val NOTIFICATION_ID = 1001
         private const val IDLE_TIMEOUT_MS = 5 * 60_000L
-        private const val MAX_CONSECUTIVE_ERRORS = 3
-
-        /** Versículos que se pronuncian de corrido en una sola frase. */
-        private const val MAX_VERSES_PER_BLOCK = 6
-        private const val MAX_BLOCK_CHARS = 550
         private const val WAKE_LOCK_TIMEOUT_MS = 3 * 60 * 60_000L
+
+        /** Tras tantos tramos fallidos seguidos se pausa: algo va mal con el audio. */
+        private const val MAX_FALLOS_SEGUIDOS = 3
 
         /** `true` mientras el servicio existe: evita despertarlo por ajustes menores. */
         @Volatile
@@ -1643,9 +1269,9 @@ class PlaybackService : Service() {
         fun salirDeLecturas(context: Context) = send(context, ACTION_SALIR_LECTURAS)
 
         /**
-         * Cambios de voz: si el servicio no existe basta con guardar la
-         * preferencia; arrancarlo solo para esto encendería una notificación
-         * de primer plano sin motivo.
+         * Cambia la velocidad de la voz IA: si el servicio no existe basta con
+         * guardar la preferencia; arrancarlo solo para esto encendería una
+         * notificación de primer plano sin motivo.
          */
         fun setSpeechRate(context: Context, rate: Float) {
             Prefs.get(context).speechRate = rate
@@ -1653,37 +1279,5 @@ class PlaybackService : Service() {
             else PlayerBus.update { it.copy(speechRate = rate) }
         }
 
-        fun setPitch(context: Context, pitch: Float) {
-            Prefs.get(context).pitch = pitch
-            if (running) send(context, ACTION_SET_PITCH) { putExtra(EXTRA_VALUE, pitch) }
-            else PlayerBus.update { it.copy(pitch = pitch) }
-        }
-
-        /** La voz elegida se guarda siempre; el servicio solo se avisa si ya existe. */
-        fun setVoice(context: Context, voiceName: String?) {
-            Prefs.get(context).voiceName = voiceName
-            if (running) send(context, ACTION_SET_VOICE) { putExtra(EXTRA_ENGINE_CHANGED, false) }
-        }
-
-        fun setEngine(context: Context, enginePackage: String?) {
-            val prefs = Prefs.get(context)
-            prefs.ttsEngine = enginePackage
-            // Cada motor trae sus propias voces: la elegida ya no tiene sentido.
-            prefs.voiceName = null
-            if (running) send(context, ACTION_SET_VOICE) { putExtra(EXTRA_ENGINE_CHANGED, true) }
-        }
-
-        fun setAllowNetworkVoices(context: Context, allow: Boolean) {
-            Prefs.get(context).allowNetworkVoices = allow
-            if (running) send(context, ACTION_SET_VOICE) { putExtra(EXTRA_ENGINE_CHANGED, false) }
-        }
-
-        /**
-         * Se activó o desactivó la voz IA (ya guardado en [Prefs]). Si el
-         * servicio no existe no hay nada que cambiar: lo leerá al arrancar.
-         */
-        fun vozIaCambio(context: Context) {
-            if (running) send(context, ACTION_VOZ_IA)
-        }
     }
 }

@@ -63,7 +63,7 @@ class LeccionarioTest {
         val dia = Precedencia.dia(fecha, celebraciones)
         val delTiempo = temporales.optJSONArray(Precedencia.claveLecturasDelTiempo(temporales, dia))?.let { parse(it) } ?: emptyList()
         val deLaFiesta = Precedencia.claveLecturasFija(fijas, dia)?.let { fijas.optJSONArray(it) }?.let { parse(it) } ?: emptyList()
-        val lecturas = Precedencia.combinar(delTiempo, deLaFiesta, dia.fija?.grado) { it.titulo }
+        val lecturas = Precedencia.combinar(dia, delTiempo, deLaFiesta) { it.titulo }
         val descripcion = if (deLaFiesta.isEmpty()) CalendarioLiturgico.descripcion(fecha) else dia.descripcion
         return Dia(dia, descripcion, lecturas)
     }
@@ -104,7 +104,9 @@ class LeccionarioTest {
             val dia = delDia(fecha)
             val titulos = dia.lecturas.map { it.titulo }
             val requeridas = mutableListOf("Primera lectura", "Salmo responsorial", "Evangelio")
-            if (fecha.dayOfWeek == DayOfWeek.SUNDAY) requeridas.add("Segunda lectura")
+            // La Exaltación de la Santa Cruz (14 sep) se lee en México con estructura
+            // ordinaria (sin 2ª lectura), también cuando cae en domingo (p. ej. 2031).
+            if (fecha.dayOfWeek == DayOfWeek.SUNDAY && dia.eleccion.fija?.clave != "09-14") requeridas.add("Segunda lectura")
             val faltan = requeridas.filter { it !in titulos }
             val vacias = dia.lecturas.filter { versiculos(it).isEmpty() }.map { it.titulo }
             if (faltan.isNotEmpty() || vacias.isNotEmpty()) {
@@ -128,23 +130,21 @@ class LeccionarioTest {
     }
 
     /**
-     * El salmo responsorial se lee completo cuando tiene 30 versículos o menos
-     * (decisión deliberada: el desfase de los títulos haría sonar un tramo
-     * corrido). Si es más largo, solo lo citado: nunca el salmo entero.
+     * El salmo responsorial lee SUS versículos citados (ya no el salmo entero):
+     * el número de versículos leídos no pasa de los citados. Única excepción: el
+     * Salmo 13 (hebreo), cuyo último versículo (v6) se reparte en dos versículos
+     * de la SBL, así que puede leer uno más.
      */
     @Test
-    fun `ningun salmo responsorial pasa de su cita`() {
+    fun `el salmo responsorial lee solo sus versiculos citados`() {
         val largos = mutableListOf<String>()
         for ((k, l) in todas()) {
-            if (l.titulo != "Salmo responsorial") continue
+            if (l.titulo != "Salmo responsorial" || l.libro != 23) continue
             val n = posiciones(l).size
-            val caps = libro(l.libro)
-            val completos = l.libro == 23 && l.tramos.all { t ->
-                t[0] == t[2] && t[1] == 1 && t[3] == caps[t[0] - 1].size && caps[t[0] - 1].size <= 30
-            }
-            if (completos) continue
             val citados = versiculosCitados(l.cita)
-            if (n > 30 || n > citados) largos.add("$k: ${l.cita} lee $n versículos (la cita tiene $citados)")
+            // El Salmo 13 parte su v6 hebreo en los versículos 5 y 6 de la SBL.
+            val tolerancia = if (l.tramos.any { it[0] == 13 }) 1 else 0
+            if (n > citados + tolerancia) largos.add("$k: ${l.cita} lee $n versículos (la cita tiene $citados)")
         }
         assertTrue("Salmos que se alargan:\n" + largos.joinToString("\n"), largos.isEmpty())
     }
@@ -194,8 +194,11 @@ class LeccionarioTest {
         val dia = delDia(LocalDate.of(2026, 12, 6))
         val salmo = dia.lecturas.first { it.titulo == "Salmo responsorial" }
         assertEquals(23, salmo.libro)
+        // Los tramos leen del salmo 85 hebreo (el que trae la Biblia empaquetada),
+        // pero la cita se muestra con la numeración de la Vulgata del misal mexicano
+        // (85 hebreo = 84 Vulgata), según MX-08.
         assertTrue(salmo.tramos.all { it[0] == 85 && it[2] == 85 })
-        assertEquals("Salmo 85, 9-14", salmo.cita)
+        assertEquals("Salmo 84, 9-14", salmo.cita)
     }
 
     @Test
@@ -252,9 +255,7 @@ class LeccionarioTest {
         // 2030: la Inmaculada en domingo de Adviento pasa al lunes 9.
         assertNull(delDia(LocalDate.of(2030, 12, 8)).eleccion.fija)
         assertEquals("12-08", delDia(LocalDate.of(2030, 12, 9)).eleccion.fija?.clave)
-        // Guadalupe en el III domingo de Adviento (2027) pasa al lunes 13.
-        assertNull(delDia(LocalDate.of(2027, 12, 12)).eleccion.fija)
-        assertEquals("12-12", delDia(LocalDate.of(2027, 12, 13)).eleccion.fija?.clave)
+        // Guadalupe NO se traslada (ver `Guadalupe se celebra siempre el 12 de diciembre`).
     }
 
     @Test
@@ -317,9 +318,16 @@ class LeccionarioTest {
         // 23-12-2026: Malaquías 3, 1-4 y 4, 5-6 (el profeta Elías), sin repetir.
         val malaquias = delDia(LocalDate.of(2026, 12, 23)).lecturas.first { it.titulo == "Primera lectura" }
         assertEquals(listOf(listOf(3, 1, 3, 4), listOf(4, 5, 4, 6)), malaquias.tramos.map { it.toList() })
-        // Guadalupe: Zacarías 2, 14-17 es 2, 10-13 en esta Biblia.
-        val zacarias = delDia(LocalDate.of(2026, 12, 12)).lecturas.first { it.titulo == "Primera lectura" }
-        assertEquals(listOf(2, 10, 2, 13), zacarias.tramos[0].toList())
+        // Guadalupe (México): Isaías 7 (no Zacarías), con Segunda lectura (Gálatas)
+        // y Evangelio Lucas 1, 39-48.
+        val guadalupe = delDia(LocalDate.of(2026, 12, 12))
+        val isaiasGuad = guadalupe.lecturas.first { it.titulo == "Primera lectura" }
+        assertEquals(29, isaiasGuad.libro)
+        assertEquals(7, isaiasGuad.tramos[0][0])
+        assertEquals(55, guadalupe.lecturas.first { it.titulo == "Segunda lectura" }.libro)
+        val evangelioGuad = guadalupe.lecturas.first { it.titulo == "Evangelio" }
+        assertEquals(49, evangelioGuad.libro)
+        assertEquals(listOf(1, 39, 1, 48), evangelioGuad.tramos[0].toList())
         // Domingo de Ramos: la Pasión, no solo el evangelio de la procesión.
         val ramos = delDia(LocalDate.of(2027, 3, 21))
         assertTrue("Marcos 14-15", ramos.tiene(48, 14))
@@ -357,5 +365,92 @@ class LeccionarioTest {
             listOf(listOf(6, 9, 6, 10), listOf(7, 1, 7, 1), listOf(7, 8, 7, 18), listOf(8, 4, 8, 8)),
             tobias.tramos.map { it.toList() },
         )
+    }
+
+    @Test
+    fun `fiestas propias de Mexico del santoral`() {
+        // 3 de mayo de 2027: La Santa Cruz (Fiesta), no Felipe y Santiago.
+        val cruz = delDia(LocalDate.of(2027, 5, 3))
+        assertEquals("05-03", cruz.eleccion.fija?.clave)
+        assertEquals("La Santa Cruz · Fiesta", cruz.descripcion)
+        assertTrue("Juan 3 (Jn 3, 13-17)", cruz.tiene(50, 3))
+        // 4 de mayo de 2027: Felipe y Santiago.
+        val apostoles = delDia(LocalDate.of(2027, 5, 4))
+        assertEquals("05-04", apostoles.eleccion.fija?.clave)
+        assertTrue("Juan 14 (Jn 14, 6-14)", apostoles.tiene(50, 14))
+        // San Felipe de Jesús (5 feb) y Santa Rosa de Lima (30 ago): Fiestas mexicanas.
+        assertEquals("02-05", delDia(LocalDate.of(2027, 2, 5)).eleccion.fija?.clave)
+        assertEquals("08-30", delDia(LocalDate.of(2027, 8, 30)).eleccion.fija?.clave)
+    }
+
+    @Test
+    fun `la Exaltacion de la Santa Cruz el 14 de septiembre con estructura ordinaria`() {
+        // Fiesta del Señor universal (distinta de 'La Santa Cruz' del 3 de mayo), que
+        // en México se lee con estructura ORDINARIA: 1ª lectura, salmo y Evangelio,
+        // sin 2ª lectura, también cuando cae en domingo.
+        // 2027-09-14 (martes): Números 21, 4-9; Salmo; Juan 3, 13-17.
+        val martes = delDia(LocalDate.of(2027, 9, 14))
+        assertEquals("09-14", martes.eleccion.fija?.clave)
+        assertEquals("La Exaltación de la Santa Cruz · Fiesta", martes.descripcion)
+        assertEquals(3, martes.lecturas.size)
+        assertTrue("sin 2ª lectura", martes.lecturas.none { it.titulo.startsWith("Segunda lectura") })
+        assertTrue("Números 21", martes.tiene(4, 21))
+        assertTrue("Juan 3", martes.tiene(50, 3))
+        // 2031-09-14 (domingo): la fiesta del Señor (FS, rango 5) gana al domingo
+        // ordinario (rango 6) y sigue leyéndose con 3 lecturas, sin 2ª.
+        assertEquals(DayOfWeek.SUNDAY, LocalDate.of(2031, 9, 14).dayOfWeek)
+        val domingo = delDia(LocalDate.of(2031, 9, 14))
+        assertEquals("09-14", domingo.eleccion.fija?.clave)
+        assertEquals(3, domingo.lecturas.size)
+        assertTrue("domingo sin 2ª lectura", domingo.lecturas.none { it.titulo.startsWith("Segunda lectura") })
+    }
+
+    @Test
+    fun `Guadalupe se celebra siempre el 12 de diciembre`() {
+        // En domingo de Adviento (2027) se celebra el mismo día 12, con la 2ª
+        // lectura del III domingo de Adviento (Filipenses 4), no Gálatas (CEM).
+        assertEquals(DayOfWeek.SUNDAY, LocalDate.of(2027, 12, 12).dayOfWeek)
+        val domingo = delDia(LocalDate.of(2027, 12, 12))
+        assertEquals("12-12", domingo.eleccion.fija?.clave)
+        val segunda = domingo.lecturas.first { it.titulo == "Segunda lectura" }
+        assertEquals(57, segunda.libro)
+        assertEquals(4, segunda.tramos[0][0])
+        // El 13 ya no es Guadalupe: no se traslada.
+        assertNull(delDia(LocalDate.of(2027, 12, 13)).eleccion.fija)
+        // En sábado (2026) se lee con las cuatro partes mexicanas (Gálatas incluida).
+        assertEquals(55, delDia(LocalDate.of(2026, 12, 12)).lecturas.first { it.titulo == "Segunda lectura" }.libro)
+    }
+
+    @Test
+    fun `entre semana las fiestas no tienen segunda lectura`() {
+        fun titulos(fecha: LocalDate) = delDia(fecha).lecturas.map { it.titulo }
+        // Fiestas del Señor en día laborable: Presentación (martes 2-2-2027),
+        // Transfiguración (viernes 6-8-2027), Letrán (lunes 9-11-2026): 3 lecturas.
+        for (fecha in listOf(LocalDate.of(2027, 2, 2), LocalDate.of(2027, 8, 6), LocalDate.of(2026, 11, 9))) {
+            val t = titulos(fecha)
+            assertEquals("$fecha debe tener 3 lecturas: $t", 3, t.size)
+            assertTrue("$fecha no debe tener Segunda lectura: $t", t.none { it.startsWith("Segunda lectura") })
+        }
+        // Jesucristo, Sumo y Eterno Sacerdote (jueves 20-5-2027): Fiesta, 3 lecturas.
+        val sumo = delDia(LocalDate.of(2027, 5, 20))
+        assertEquals(CalendarioLiturgico.SUMO_SACERDOTE, sumo.eleccion.fija?.clave)
+        assertEquals(3, sumo.lecturas.size)
+        assertTrue("Isaías 52-53", sumo.tiene(29, 52))
+        // Bautismo del Señor en lunes (8-1-2029): también sin 2ª lectura.
+        assertTrue(titulos(LocalDate.of(2029, 1, 8)).none { it.startsWith("Segunda lectura") })
+        // Barrido: cualquier día no domingo con fija F/FS, o el Bautismo, lee sin 2ª.
+        for (fecha in dias()) {
+            if (fecha.dayOfWeek == DayOfWeek.SUNDAY) continue
+            val dia = delDia(fecha)
+            val grado = dia.eleccion.fija?.grado
+            val esBautismo = dia.eleccion.fija == null && dia.eleccion.claveTemporal.startsWith("BAUTISMO")
+            if (grado == Grado.FIESTA || grado == Grado.FIESTA_DEL_SENOR || esBautismo) {
+                assertTrue(
+                    "$fecha (${dia.eleccion.fija?.clave ?: dia.eleccion.claveTemporal}) no debe tener Segunda: " +
+                        dia.lecturas.map { it.titulo },
+                    dia.lecturas.none { it.titulo.startsWith("Segunda lectura") },
+                )
+            }
+        }
     }
 }

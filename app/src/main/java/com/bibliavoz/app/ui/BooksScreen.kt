@@ -79,7 +79,6 @@ fun BooksScreen(
     var query by rememberSaveable { mutableStateOf("") }
     var tab by rememberSaveable { mutableIntStateOf(0) }
     var showSettings by remember { mutableStateOf(false) }
-    var showVoicePicker by remember { mutableStateOf(false) }
     var showVozIa by remember { mutableStateOf(false) }
 
     val normalizedQuery = query.trim().foldForSearch()
@@ -99,12 +98,8 @@ fun BooksScreen(
         SettingsSheet(
             viewModel = viewModel,
             onDismiss = { showSettings = false },
-            onOpenVoicePicker = { showSettings = false; showVoicePicker = true },
             onOpenVozIa = { showSettings = false; showVozIa = true },
         )
-    }
-    if (showVoicePicker) {
-        VoicePickerSheet(viewModel = viewModel, onDismiss = { showVoicePicker = false })
     }
     if (showVozIa) {
         VozIaSheet(viewModel = viewModel, onDismiss = { showVozIa = false })

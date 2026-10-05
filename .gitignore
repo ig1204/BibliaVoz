@@ -6,6 +6,16 @@ build/
 *.apk
 *.aab
 
+# Audio de la voz IA y registros: viven fuera del repo (E:\PG\BibliaVoz-IA) y no
+# caben en GitHub. El APK con el audio se reparte aparte (Drive u otro medio).
+*.ont
+*.part
+generador.log
+audio*/
+*.mp3
+*.opus
+app/src/main/assets/voz-ia/
+
 # Config de la máquina (Android Studio la regenera)
 local.properties
 .idea/

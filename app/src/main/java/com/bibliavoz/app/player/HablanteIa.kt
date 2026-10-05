@@ -49,6 +49,12 @@ class HablanteIa(context: Context, private val oyente: Oyente) {
     private var progreso: Job? = null
     private var velocidad = 1f
 
+    /**
+     * Aviso de fin aplazado (ver [programarFin]). En tramos largos Android avisa
+     * del final antes de que suene la última palabra; si lo hay, se puede cancelar.
+     */
+    private var finPendiente: Runnable? = null
+
     /** Reproduce [fuente] desde [desdeFraccion] (0 = el principio). Corta lo que estuviera sonando. */
     fun hablar(id: String, fuente: AudioLocal.Fuente, desdeFraccion: Float) {
         detener()
@@ -85,7 +91,17 @@ class HablanteIa(context: Context, private val oyente: Oyente) {
             if (actual != null && reproductor === mp) {
                 terminado = true
                 pararProgreso()
-                oyente.onTermino(actual)
+                // En tramos largos Android reproduce el audio «offload» en el chip
+                // de sonido y avisa del final ~0,5 s antes de que suene la última
+                // palabra. Si avisáramos ya, el siguiente tramo cortaría ese final.
+                // Esperamos a que el chip vacíe su búfer; en tramos cortos no hay
+                // offload y se avisa al momento.
+                val duracion = runCatching { mp.duration }.getOrDefault(0)
+                if (duracion >= UMBRAL_OFFLOAD_MS) {
+                    programarFin(actual)
+                } else {
+                    oyente.onTermino(actual)
+                }
             }
         }
         mp.setOnErrorListener { _, _, _ ->
@@ -115,6 +131,7 @@ class HablanteIa(context: Context, private val oyente: Oyente) {
     /** Pausa conservando el punto exacto, para seguir con [reanudar]. */
     fun pausar() {
         pararProgreso()
+        cancelarFin()
         val mp = reproductor ?: return
         if (!pausado) {
             runCatching { mp.pause() }
@@ -146,6 +163,7 @@ class HablanteIa(context: Context, private val oyente: Oyente) {
 
     fun detener() {
         pararProgreso()
+        cancelarFin()
         soltarReproductor()
         idActual = null
         fuenteActual = null
@@ -221,7 +239,29 @@ class HablanteIa(context: Context, private val oyente: Oyente) {
         progreso = null
     }
 
+    /**
+     * Aplaza [onTermino][Oyente.onTermino] de [id] para que el chip de sonido
+     * acabe de vaciar su búfer (el final «offload» de un tramo largo). Si entre
+     * tanto se pausa, se detiene o falla, [cancelarFin] lo anula.
+     */
+    private fun programarFin(id: String) {
+        cancelarFin()
+        val r = Runnable {
+            finPendiente = null
+            // Solo si seguimos en ese mismo tramo terminado y nadie cortó en medio.
+            if (idActual == id && terminado && reproductor != null) oyente.onTermino(id)
+        }
+        finPendiente = r
+        handler.postDelayed(r, ESPERA_FIN_OFFLOAD_MS)
+    }
+
+    private fun cancelarFin() {
+        finPendiente?.let { handler.removeCallbacks(it) }
+        finPendiente = null
+    }
+
     private fun soltarReproductor() {
+        cancelarFin()
         val mp = reproductor ?: return
         reproductor = null
         pausado = false
@@ -237,5 +277,17 @@ class HablanteIa(context: Context, private val oyente: Oyente) {
          */
         const val MARGEN_AL_SALTAR_MS = 900
         const val PASO_PROGRESO_MS = 250L
+
+        /**
+         * A partir de esta duración Android suele reproducir el tramo en modo
+         * «offload» (en el chip de sonido), que avisa del final antes de tiempo.
+         */
+        const val UMBRAL_OFFLOAD_MS = 45_000
+
+        /**
+         * Cuánto se espera, tras el aviso de fin de un tramo largo, a que el chip
+         * acabe de sonar. El adelanto medido es ~0,5 s; se deja margen de sobra.
+         */
+        const val ESPERA_FIN_OFFLOAD_MS = 1_200L
     }
 }
