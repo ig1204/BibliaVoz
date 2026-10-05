@@ -13,7 +13,7 @@ como un audiolibro.
   cómo se genera la voz IA, cómo se compila y cómo está hecho.
 - Para descargar los audios se crea un enlace de Google Drive para que lo puedan descargar
   sin tener que generarlos por su cuenta
-
+  Enlace: https://drive.google.com/drive/folders/1eS67RHAjFhHI3e3qAYhF_psniYivAIAz?usp=sharing
 ## Versiones
 
 Cada versión está en [Releases](../../releases), con su APK cuando cabe en GitHub.
